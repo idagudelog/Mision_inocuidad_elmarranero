@@ -184,6 +184,36 @@ html,body{width:100%;height:100%;background:#06090e;font-family:sans-serif;overf
       <button class="cb">JUGAR</button>
       <span class="bge">DISPONIBLE</span>
     </div>
+    <div class="card g3" id="c6">
+      <div class="ic">&#x1F321;&#xFE0F;</div>
+      <div class="ci">
+        <div class="ct">Modulo 6 - Control de Temperatura</div>
+        <div class="cd">Controla la temperatura de refrigeracion deteniendo la aguja en la zona segura</div>
+        <div class="cm">10 mediciones &middot; Medidor fluctuante &middot; Det&eacute;n la aguja</div>
+      </div>
+      <button class="cb">JUGAR</button>
+      <span class="bge">DISPONIBLE</span>
+    </div>
+    <div class="card g2" id="c7">
+      <div class="ic">&#x1F4A7;</div>
+      <div class="ci">
+        <div class="ct">Modulo 7 - Control de Agua pH y Cloro</div>
+        <div class="cd">Verifica la calidad del agua controlando los niveles de pH y cloro residual</div>
+        <div class="cm">Niveles pH &middot; Cloro residual &middot; Zona segura</div>
+      </div>
+      <button class="cb">JUGAR</button>
+      <span class="bge">DISPONIBLE</span>
+    </div>
+    <div class="card g1" id="c8">
+      <div class="ic">&#x267B;&#xFE0F;</div>
+      <div class="ci">
+        <div class="ct">Modulo 8 - Separacion de Residuos Solidos</div>
+        <div class="cd">Clasifica correctamente los residuos solidos en los contenedores adecuados</div>
+        <div class="cm">Drag &amp; Drop &middot; Clasificacion correcta &middot; Parrillera Burger</div>
+      </div>
+      <button class="cb">JUGAR</button>
+      <span class="bge">DISPONIBLE</span>
+    </div>
   </div>
   <div class="mf">El Marranero &middot; Inocuidad Alimentaria &middot; v3.0</div>
 </div>
@@ -257,6 +287,9 @@ document.getElementById("c2").addEventListener("click",function(){launch(g2html,
 document.getElementById("c3").addEventListener("click",function(){launchFile("juego3.html","Modulo 3 - Listos para Producir");});
 document.getElementById("c4").addEventListener("click",function(){launchFile("juego4.html","Modulo 4 - Caza de Malos Habitos");});
 document.getElementById("c5").addEventListener("click",function(){launchFile("juego5.html","Modulo 5 - Manos Seguras");});
+document.getElementById("c6").addEventListener("click",function(){launchFile("juego6.html","Modulo 6 - Control de Temperatura");});
+document.getElementById("c7").addEventListener("click",function(){launchFile("juego7.html","Modulo 7 - Control de Agua pH y Cloro");});
+document.getElementById("c8").addEventListener("click",function(){launchFile("juego8.html","Modulo 8 - Separacion de Residuos Solidos");});
 document.getElementById("bb").addEventListener("click",exitGame);
 lg("Script listo","#0f0");
 </script>
