@@ -40,20 +40,20 @@ canvas{display:block;border:3px solid #1abc9c;box-shadow:0 0 40px rgba(26,188,15
 <div id="game-intro">
   <div class="po-icon">💧</div>
   <div class="po-title">Control de Calidad del Agua</div>
-  <div class="po-sub">🧪 pH y Cloro Residual — Parrillera Burger</div>
+  <div class="po-sub">🌭 Agua de Proceso — Planta de Chorizos El Marranero</div>
   <div class="po-spec">
     <div class="po-spec-box">
       <h3 style="color:#3498db">pH del Agua</h3>
-      <p>Rango seguro<br><b style="color:#fff;font-size:16px">6.5 – 9.0</b><br>Resolución de Minsalud</p>
+      <p>Rango seguro<br><b style="color:#fff;font-size:16px">6.5 – 9.0</b><br>Lavado tripas · Salmueras · HACCP</p>
     </div>
     <div class="po-spec-box">
       <h3 style="color:#1abc9c">Cloro Residual</h3>
-      <p>Rango seguro<br><b style="color:#fff;font-size:16px">0.3 – 2.0 mg/L</b><br>Norma NTC / OMS</p>
+      <p>Rango seguro<br><b style="color:#fff;font-size:16px">0.3 – 2.0 mg/L</b><br>Desinfección equipos · Res. 2115/2010</p>
     </div>
   </div>
   <ul class="po-rules">
-    <li>🎯 Cada ronda genera un objetivo aleatorio de <b>pH</b> y otro de <b>Cloro</b></li>
-    <li>📊 Dos medidores fluctúan simultáneamente — ¡debes detener los dos!</li>
+    <li>� Cada ronda simula una etapa real de <b>elaboración de chorizos</b> donde el agua debe estar controlada</li>
+    <li>📊 Dos medidores fluctúan simultáneamente: <b>pH</b> y <b>Cloro residual</b> — ¡debes detener los dos!</li>
     <li>👆 <b>Clic izquierdo / tecla 1</b> para fijar el medidor de pH</li>
     <li>👆 <b>Clic derecho / tecla 2</b> para fijar el medidor de Cloro</li>
     <li>⏱️ Tienes <b>8 rondas</b> — ambos medidores deben quedar en zona segura</li>
@@ -102,7 +102,7 @@ const PARAMS = {
     speedBase:  1.8,
     speedAccel: 0.15,
     decimals:   1,
-    fact:       'pH ácido (<6.5) corroe equipos y puede inactivar el cloro.\npH alcalino (>9) reduce la eficiencia desinfectante.',
+    fact:       'pH ácido (<6.5) daña las tripas naturales y puede corroer la embutidora.\npH alcalino (>9) reduce la eficiencia del cloro en el lavado de equipos de chorizo.',
   },
   cl: {
     label:      'Cloro Residual',
@@ -119,11 +119,24 @@ const PARAMS = {
     speedBase:  1.4,
     speedAccel: 0.12,
     decimals:   2,
-    fact:       'Cloro < 0.3 mg/L: riesgo de contaminación microbiana.\nCloro > 2 mg/L: irritante y produce sabores indeseados.',
+    fact:       'Cloro < 0.3 mg/L: riesgo de Listeria y Salmonella en tripas y superficies de embutido.\nCloro > 2 mg/L: deteriora las tripas naturales y altera el color y aroma del chorizo.',
   }
 };
 
 const TOTAL_ROUNDS = 8;
+
+// ================================================================
+//  ESCENARIOS DE PROCESO — residuos generados en planta de chorizos
+// ================================================================
+const SCENARIOS = [
+  { emoji:'⚙️', label:'Limpieza de embutidora',        note:'Grasa y proteína acumuladas en equipo' },
+  { emoji:'🧂', label:'Preparación de salmuera',       note:'pH del agua afecta el chorizo final' },
+  { emoji:'❄️', label:'Desinfección de cámara fría',   note:'Superficie de maduración del chorizo' },
+  { emoji:'🔪', label:'Lavado de utensilios de corte', note:'Previene contaminación cruzada' },
+  { emoji:'🥩', label:'Limpieza de picadora de carne', note:'Residuos proteicos y grasos del cerdo' },
+  { emoji:'🗂️', label:'Enjuague de bandejas y moldes', note:'Residuos de pimentón, ajo y especias' },
+  { emoji:'💧', label:'Agua de proceso general',       note:'Toda la línea de producción de chorizos' },
+];
 
 // ================================================================
 //  ESTADO DEL JUEGO
@@ -434,18 +447,23 @@ function drawCenterPanel(ts) {
   ctx.font      = 'bold 14px Bebas Neue,sans-serif';
   ctx.textAlign = 'center';
   shadow('#000',3);
-  ctx.fillText('💧 AGUA DE PROCESO', px+pw/2, py+24);
+  ctx.fillText('🌭 AGUA · PLANTA CHORIZOS', px+pw/2, py+24);
   clearShadow();
 
-  // Icono agua
-  ctx.font = '34px serif';
-  ctx.fillText('🚰', px+pw/2, py+82);
+  // Escenario actual (etapa del proceso de elaboración)
+  const sc = SCENARIOS[Math.min(round, SCENARIOS.length - 1)];
+  ctx.font = '28px serif';
+  ctx.fillText(sc.emoji, px+pw/2, py+68);
+  ctx.fillStyle = '#f0e68c';
+  ctx.font      = 'bold 9px Nunito,sans-serif';
+  const scLbl = sc.label.length > 26 ? sc.label.slice(0,25)+'…' : sc.label;
+  ctx.fillText(scLbl.toUpperCase(), px+pw/2, py+84);
 
   // OBJETIVOS del turno
   const phM = meters.ph, clM = meters.cl;
 
   ctx.fillStyle = '#aed6f1';
-  ctx.font      = 'bold 12px Nunito,sans-serif';
+  ctx.font      = 'bold 11px Nunito,sans-serif';
   ctx.fillText('OBJETIVOS DE LA RONDA', px+pw/2, py+106);
 
   // pH objetivo
@@ -473,6 +491,11 @@ function drawCenterPanel(ts) {
   shadow('#0e8c70',6);
   ctx.fillText(clM ? clM.target.toFixed(2) : '—', px+pw/2, py+210);
   clearShadow();
+
+  // Nota educativa del escenario actual
+  ctx.fillStyle = 'rgba(240,230,140,0.6)';
+  ctx.font      = '9px Nunito,sans-serif';
+  ctx.fillText(sc.note, px+pw/2, py+228);
 
   // Controles
   ctx.fillStyle = '#7fb3d3';
@@ -755,7 +778,7 @@ function drawHUD(ts) {
   ctx.fillStyle = '#aed6f1';
   ctx.font      = 'bold 21px Bebas Neue,sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('💧  CONTROL DE CALIDAD DEL AGUA  ·  PARRILLERA BURGER', W/2, 33);
+  ctx.fillText('💧  CONTROL DE AGUA  ·  PLANTA DE CHORIZOS EL MARRANERO', W/2, 33);
 
   ctx.fillStyle = '#f1c40f';
   ctx.font      = 'bold 19px Bebas Neue,sans-serif';
@@ -908,7 +931,7 @@ function drawResult(ts) {
   roundRect(tX, bottomY, tW, 26, 6); ctx.fill();
   ctx.fillStyle = '#1abc9c';
   ctx.font      = '11px Nunito,sans-serif';
-  ctx.fillText('✔ pH 6.5–9.0  ·  Cloro residual 0.3–2.0 mg/L  ·  Res. 2115/2010 Minsalud  ·  NSF 60 / OMS Guidelines for Drinking-water Quality', tX+10, bottomY+17);
+  ctx.fillText('✔ pH 6.5–9.0  ·  Cloro 0.3–2.0 mg/L  ·  Planta chorizos El Marranero  ·  Res. 2115/2010 Minsalud  ·  HACCP / BPM', tX+10, bottomY+17);
 
   // Botones
   const bH1 = hov(180, H-60, 180, 40);
@@ -935,7 +958,7 @@ function drawMenuScreen() {
   ctx.font      = 'bold 48px Bebas Neue,sans-serif';
   ctx.textAlign = 'center';
   shadow('rgba(26,188,156,0.9)',16);
-  ctx.fillText('💧  pH y CLORO RESIDUAL', W/2, H/2-16);
+  ctx.fillText('💧  AGUA EN PLANTA DE CHORIZOS', W/2, H/2-16);
   clearShadow();
   ctx.fillStyle = '#7fb3d3';
   ctx.font      = '18px Nunito,sans-serif';
