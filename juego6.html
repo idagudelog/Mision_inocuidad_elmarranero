@@ -1,0 +1,1004 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Control de Temperatura – Parrillera Burger</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Nunito:wght@400;700;800;900&display=swap" rel="stylesheet"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;background:#0d0d0d;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden}
+#wrap{width:100%;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;line-height:0;flex-shrink:0}
+canvas{display:block;border:3px solid #2980b9;box-shadow:0 0 40px rgba(41,128,185,0.7);touch-action:none}
+#portrait-hint{display:none;text-align:center;padding:14px 20px;color:rgba(255,255,255,0.4);font-family:'Nunito',sans-serif;font-size:12px;line-height:1.8;max-width:340px}
+#portrait-hint b{color:rgba(255,255,255,0.7)}
+@media(orientation:portrait){
+  html,body{justify-content:flex-start;padding-top:12px}
+  #portrait-hint{display:block}
+}
+#game-intro{position:fixed;inset:0;z-index:999;background:rgba(6,9,14,0.97);font-family:'Nunito',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:14px;padding:16px 20px;overflow-y:auto}
+#game-intro.hide{display:none}
+.po-icon{font-size:68px;line-height:1}
+.po-title{font-family:'Bebas Neue',sans-serif;font-size:clamp(22px,7vw,44px);letter-spacing:clamp(0px,0.8vw,4px);text-align:center;color:#fff}
+.po-sub{font-family:'Bebas Neue',sans-serif;font-size:20px;color:#3498db;text-align:center}
+.po-rules{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px 22px;max-width:480px;width:100%}
+.po-rules li{font-size:13px;color:#bdc3c7;margin-bottom:6px;line-height:1.5;list-style:none;padding-left:4px}
+.po-btn{padding:11px 38px;border-radius:12px;border:none;cursor:pointer;font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;color:#fff;transition:opacity 0.2s,transform 0.1s;margin-top:4px}
+.po-btn:hover{opacity:0.85;transform:scale(1.04)}
+@media(max-height:500px){
+  .po-icon{font-size:40px}.po-title{font-size:20px}.po-rules li{font-size:12px;margin-bottom:3px}.po-btn{padding:8px 28px;font-size:18px}
+}
+</style>
+</head>
+<body>
+
+<!-- ══ INTRO OVERLAY ══ -->
+<div id="game-intro">
+  <div class="po-icon">🌡️</div>
+  <div class="po-title">Control de Temperatura</div>
+  <div class="po-sub">🥩 Refrigeración de Cárnicos — Parrillera Burger</div>
+  <ul class="po-rules">
+    <li>🎯 Se mostrará una temperatura objetivo entre <b>0 °C y 4 °C</b></li>
+    <li>📊 El medidor fluctúa continuamente — ¡deténlo en el valor correcto!</li>
+    <li>👆 Pulsa la pantalla o presiona <b>ESPACIO / ENTER</b> para fijar la lectura</li>
+    <li>✅ Cuanto más cerca al objetivo, mayor puntaje</li>
+    <li>❄️ Tienes <b>10 mediciones</b> para demostrar tu control del frío</li>
+    <li>🏅 Zona verde (exacta) = 100 pts · Zona amarilla = 50 pts · Fuera = 0 pts</li>
+  </ul>
+  <button class="po-btn" style="background:#2980b9" onclick="launchGame()">▶  INICIAR</button>
+</div>
+
+<div id="portrait-hint"><b>Gira el dispositivo</b> para una mejor experiencia<br>📱 → 🖥️</div>
+<div id="wrap"><canvas id="c"></canvas></div>
+
+<script>
+// ================================================================
+//  CONTROL DE TEMPERATURA – Minijuego 6 – Parrillera Burger
+//  Medidor fluctuante: detén la aguja en el valor objetivo
+// ================================================================
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+const W = 800, H = 500;
+
+const DPR = window.devicePixelRatio || 1;
+canvas.width  = W * DPR;
+canvas.height = H * DPR;
+ctx.scale(DPR, DPR);
+
+function toCanvasCoords(cx, cy) {
+  const r = canvas.getBoundingClientRect();
+  return { x:(cx-r.left)*(W/r.width), y:(cy-r.top)*(H/r.height) };
+}
+
+// ================================================================
+//  CONSTANTES DE JUEGO
+// ================================================================
+const TOTAL_ROUNDS    = 10;       // mediciones por partida
+const TEMP_MIN        = -2;       // rango del medidor (escala visible)
+const TEMP_MAX        = 8;        // rango del medidor
+const TARGET_MIN      = 0;        // zona objetivo
+const TARGET_MAX      = 4;
+const TOLERANCE_GREEN = 0.3;      // ±°C para puntuación perfecta
+const TOLERANCE_YELLOW= 0.8;      // ±°C para puntuación parcial
+const NEEDLE_SPEED_BASE = 2.2;    // °C/segundo velocidad base
+const NEEDLE_ACCEL    = 0.18;     // aceleración adicional por ronda
+
+// ================================================================
+//  ESTADO
+// ================================================================
+let STATE = 'menu'; // menu | playing | frozen | result
+let round       = 0;
+let score       = 0;
+let targetTemp  = 2;
+let needleTemp  = TEMP_MIN;
+let needleDir   = 1;         // +1 sube, -1 baja
+let needleSpeed = NEEDLE_SPEED_BASE;
+let frozenTemp  = null;
+let frozenAnim  = 0;         // 0→1 animación de congelado
+let roundResults= [];        // {target, got, pts}
+let lastTime    = 0;
+let resultMsg   = '';
+let resultColor = '#fff';
+let resultPts   = 0;
+let waitTimer   = 0;         // tiempo de espera entre rondas
+const WAIT_BETWEEN = 1.4;   // segundos de pausa tras cada medición
+
+// Partículas de frío
+let particles = [];
+
+// ================================================================
+//  INPUT
+// ================================================================
+canvas.addEventListener('click',   e => { handleAction(); });
+canvas.addEventListener('touchstart', e => { e.preventDefault(); handleAction(); }, {passive:false});
+document.addEventListener('keydown', e => {
+  if(e.key === ' ' || e.key === 'Enter') {
+    if(STATE === 'menu')   { launchGame(); return; }
+    if(STATE === 'result') { launchGame(); return; }
+    handleAction();
+    e.preventDefault();
+  }
+});
+
+function handleAction() {
+  if(STATE === 'playing') freeze();
+  else if(STATE === 'result') launchGame();
+}
+
+// ================================================================
+//  LÓGICA
+// ================================================================
+function launchGame() {
+  document.getElementById('game-intro').classList.add('hide');
+  startGame();
+}
+
+function startGame() {
+  round        = 0;
+  score        = 0;
+  roundResults = [];
+  particles    = [];
+  STATE        = 'playing';
+  beginRound();
+  requestAnimationFrame(loop);
+}
+
+function beginRound() {
+  // Temperatura objetivo aleatoria entre 0.0 y 4.0 con 1 decimal
+  targetTemp   = Math.round((Math.random() * TARGET_MAX) * 10) / 10;
+  // Velocidad aumenta con las rondas
+  needleSpeed  = NEEDLE_SPEED_BASE + round * NEEDLE_ACCEL;
+  // Empezar aguja en posición aleatoria
+  needleTemp   = TEMP_MIN + Math.random() * (TEMP_MAX - TEMP_MIN);
+  needleDir    = Math.random() < 0.5 ? 1 : -1;
+  frozenTemp   = null;
+  frozenAnim   = 0;
+  resultMsg    = '';
+  waitTimer    = 0;
+  STATE        = 'playing';
+}
+
+function freeze() {
+  if(STATE !== 'playing') return;
+  frozenTemp = needleTemp;
+  const diff = Math.abs(frozenTemp - targetTemp);
+  if(diff <= TOLERANCE_GREEN) {
+    resultPts   = 100;
+    resultMsg   = '🎯 ¡PERFECTO!';
+    resultColor = '#2ecc71';
+    spawnParticles(frozenTemp, '#2ecc71', 30);
+  } else if(diff <= TOLERANCE_YELLOW) {
+    resultPts   = 50;
+    resultMsg   = '👍 ¡CERCA!';
+    resultColor = '#f1c40f';
+    spawnParticles(frozenTemp, '#f1c40f', 15);
+  } else {
+    resultPts   = 0;
+    resultMsg   = '❌ FUERA DE RANGO';
+    resultColor = '#e74c3c';
+    spawnParticles(frozenTemp, '#e74c3c', 10);
+  }
+  score += resultPts;
+  roundResults.push({ target: targetTemp, got: frozenTemp, pts: resultPts });
+  STATE = 'frozen';
+  waitTimer = 0;
+}
+
+function nextRound() {
+  round++;
+  if(round >= TOTAL_ROUNDS) {
+    STATE = 'result';
+  } else {
+    beginRound();
+  }
+}
+
+// ── Partículas de retroalimentación ──
+function spawnParticles(temp, color, count) {
+  const {nx, ny} = needleScreenPos(temp);
+  for(let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 40 + Math.random() * 100;
+    particles.push({
+      x: nx, y: ny,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 30,
+      life: 1,
+      decay: 0.6 + Math.random() * 0.8,
+      r: 3 + Math.random() * 5,
+      color
+    });
+  }
+}
+
+function updateParticles(dt) {
+  for(let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x  += p.vx * dt;
+    p.y  += p.vy * dt;
+    p.vy += 120 * dt; // gravedad
+    p.life -= p.decay * dt;
+    if(p.life <= 0) particles.splice(i, 1);
+  }
+}
+
+// ================================================================
+//  GEOMETRÍA DEL MEDIDOR (barra vertical a la derecha)
+// ================================================================
+const GAUGE_X   = 560;  // centro X del medidor
+const GAUGE_TOP = 70;   // y del extremo frío (TEMP_MAX)
+const GAUGE_BOT = 420;  // y del extremo caliente (TEMP_MIN)
+const GAUGE_W   = 36;   // ancho de la barra
+
+function tempToY(t) {
+  // TEMP_MAX arriba (frío), TEMP_MIN abajo (caliente)
+  return GAUGE_BOT - ((t - TEMP_MIN) / (TEMP_MAX - TEMP_MIN)) * (GAUGE_BOT - GAUGE_TOP);
+}
+
+function needleScreenPos(t) {
+  return { nx: GAUGE_X + GAUGE_W / 2 + 30, ny: tempToY(t) };
+}
+
+// ================================================================
+//  LOOP PRINCIPAL
+// ================================================================
+function loop(ts) {
+  const dt = Math.min((ts - lastTime) / 1000, 0.05);
+  lastTime = ts;
+
+  update(dt);
+  draw(ts);
+  requestAnimationFrame(loop);
+}
+
+function update(dt) {
+  // Actualizar partículas siempre
+  updateParticles(dt);
+
+  if(STATE === 'playing') {
+    // Mover aguja
+    needleTemp += needleDir * needleSpeed * dt;
+
+    // Rebote en extremos con variación de velocidad
+    if(needleTemp >= TEMP_MAX) {
+      needleTemp = TEMP_MAX;
+      needleDir  = -1;
+      needleSpeed = NEEDLE_SPEED_BASE + round * NEEDLE_ACCEL + Math.random() * 0.8;
+    } else if(needleTemp <= TEMP_MIN) {
+      needleTemp = TEMP_MIN;
+      needleDir  = 1;
+      needleSpeed = NEEDLE_SPEED_BASE + round * NEEDLE_ACCEL + Math.random() * 0.8;
+    }
+
+    // Pequeñas fluctuaciones aleatorias
+    needleSpeed += (Math.random() - 0.5) * 0.4 * dt * 60;
+    needleSpeed  = Math.max(0.8, Math.min(5.5, needleSpeed));
+  }
+
+  if(STATE === 'frozen') {
+    frozenAnim = Math.min(frozenAnim + dt * 3, 1);
+    waitTimer += dt;
+    if(waitTimer >= WAIT_BETWEEN) nextRound();
+  }
+}
+
+// ================================================================
+//  DIBUJO
+// ================================================================
+function draw(ts) {
+  ctx.clearRect(0, 0, W, H);
+
+  drawBackground(ts);
+  drawThermometer(ts);
+  drawGauge(ts);
+  drawNeedle(ts);
+  drawParticles();
+  drawHUD(ts);
+
+  if(STATE === 'frozen') drawFrozenFeedback(ts);
+  if(STATE === 'result') drawResult(ts);
+  if(STATE === 'menu')   drawMenuScreen(ts);
+}
+
+// ── Fondo ──
+function drawBackground(ts) {
+  // Gradiente fondo oscuro frío
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#050d18');
+  bg.addColorStop(1, '#0a1828');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Cuadrícula sutil
+  ctx.strokeStyle = 'rgba(41,128,185,0.07)';
+  ctx.lineWidth   = 1;
+  for(let x = 0; x < W; x += 50) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+  for(let y = 0; y < H; y += 50) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+
+  // Efecto copos de nieve decorativos
+  const t = ts / 1000;
+  ctx.fillStyle = 'rgba(174,214,241,0.18)';
+  const flakes = [
+    {x:40,  y:60,  s:8,  p:0},
+    {x:120, y:400, s:6,  p:1.2},
+    {x:200, y:150, s:10, p:2.4},
+    {x:480, y:460, s:5,  p:0.8},
+    {x:700, y:80,  s:7,  p:3.1},
+    {x:750, y:350, s:9,  p:1.7},
+    {x:30,  y:300, s:6,  p:2.0},
+  ];
+  flakes.forEach(f => {
+    const fy = (f.y + t * 18) % (H + 20) - 10;
+    drawSnowflake(f.x + Math.sin(t * 0.4 + f.p) * 8, fy, f.s);
+  });
+}
+
+function drawSnowflake(x, y, s) {
+  ctx.save();
+  ctx.translate(x, y);
+  for(let i = 0; i < 6; i++) {
+    ctx.rotate(Math.PI / 3);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(0, s);
+    ctx.moveTo(0, s * 0.5);
+    ctx.lineTo(s * 0.28, s * 0.3);
+    ctx.moveTo(0, s * 0.5);
+    ctx.lineTo(-s * 0.28, s * 0.3);
+    ctx.strokeStyle = 'rgba(174,214,241,0.22)';
+    ctx.lineWidth   = 1;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ── Termómetro decorativo (izquierda) ──
+function drawThermometer(ts) {
+  const tx = 160, ty = 60;
+  const tw = 60,  th = 340;
+  const bulbR = 34;
+  const bulbCY = ty + th + bulbR * 0.6;
+  const tubeW  = 20;
+  const tubeX  = tx + tw / 2 - tubeW / 2;
+
+  // Sombra
+  ctx.shadowColor = 'rgba(41,128,185,0.4)';
+  ctx.shadowBlur  = 20;
+
+  // Tubo exterior (vidrio)
+  ctx.fillStyle = 'rgba(180,220,255,0.12)';
+  roundRect(tubeX - 4, ty - 4, tubeW + 8, th + 8, 12);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(150,200,255,0.35)';
+  ctx.lineWidth   = 2;
+  ctx.stroke();
+
+  // Tubo interior (fondo)
+  ctx.fillStyle = 'rgba(10,20,40,0.7)';
+  roundRect(tubeX, ty, tubeW, th, 8);
+  ctx.fill();
+
+  // Relleno de mercurio proporcional al needle
+  const fillFrac = Math.max(0, Math.min(1, (needleTemp - TEMP_MIN) / (TEMP_MAX - TEMP_MIN)));
+  const fillH    = fillFrac * th;
+  const fillY    = ty + th - fillH;
+  const mercuryGrad = ctx.createLinearGradient(0, fillY, 0, ty + th);
+  if(needleTemp < 0) {
+    mercuryGrad.addColorStop(0, '#e74c3c');
+    mercuryGrad.addColorStop(1, '#c0392b');
+  } else if(needleTemp <= TARGET_MAX) {
+    mercuryGrad.addColorStop(0, '#3498db');
+    mercuryGrad.addColorStop(1, '#1a6fb5');
+  } else {
+    mercuryGrad.addColorStop(0, '#f39c12');
+    mercuryGrad.addColorStop(1, '#d35400');
+  }
+  ctx.fillStyle = mercuryGrad;
+  roundRect(tubeX + 2, fillY, tubeW - 4, fillH + 8, 6);
+  ctx.fill();
+
+  // Zona verde (0-4°C) marcada en el tubo
+  const y4  = tempToThermY(4, ty, th);
+  const y0  = tempToThermY(0, ty, th);
+  ctx.fillStyle = 'rgba(46,204,113,0.18)';
+  ctx.fillRect(tubeX, y4, tubeW, y0 - y4);
+  ctx.strokeStyle = 'rgba(46,204,113,0.5)';
+  ctx.lineWidth   = 1.5;
+  ctx.strokeRect(tubeX, y4, tubeW, y0 - y4);
+
+  // Bulbo inferior
+  const bulbGrad = ctx.createRadialGradient(tx + tw/2 - 4, bulbCY - 6, 4, tx + tw/2, bulbCY, bulbR);
+  if(needleTemp <= TARGET_MAX) {
+    bulbGrad.addColorStop(0, '#5dade2');
+    bulbGrad.addColorStop(1, '#1a6fb5');
+  } else {
+    bulbGrad.addColorStop(0, '#f5b041');
+    bulbGrad.addColorStop(1, '#d35400');
+  }
+  ctx.fillStyle = bulbGrad;
+  ctx.beginPath();
+  ctx.arc(tx + tw/2, bulbCY, bulbR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(150,200,255,0.4)';
+  ctx.lineWidth   = 2;
+  ctx.stroke();
+
+  // Brillo bulbo
+  ctx.fillStyle = 'rgba(255,255,255,0.25)';
+  ctx.beginPath();
+  ctx.arc(tx + tw/2 - 8, bulbCY - 10, 10, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Brillo tubo
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  roundRect(tubeX + 3, ty, 5, th, 4);
+  ctx.fill();
+
+  ctx.shadowBlur = 0;
+
+  // Escala de temperatura (marcas en el tubo)
+  ctx.fillStyle   = '#aed6f1';
+  ctx.font        = 'bold 11px Nunito,sans-serif';
+  ctx.textAlign   = 'right';
+  ctx.strokeStyle = 'rgba(150,200,255,0.4)';
+  ctx.lineWidth   = 1;
+  for(let t2 = TEMP_MIN; t2 <= TEMP_MAX; t2++) {
+    const my = tempToThermY(t2, ty, th);
+    ctx.beginPath();
+    ctx.moveTo(tubeX - 2, my);
+    ctx.lineTo(tubeX - 8, my);
+    ctx.stroke();
+    if(t2 % 2 === 0) ctx.fillText(t2 + '°', tubeX - 10, my + 4);
+  }
+  ctx.textAlign = 'left';
+
+  // Etiqueta zona correcta
+  ctx.fillStyle = '#2ecc71';
+  ctx.font      = 'bold 11px Nunito,sans-serif';
+  ctx.fillText('✓ 0-4°C', tubeX + tubeW + 10, (y0 + y4) / 2 + 4);
+
+  // Temperatura actual sobre el bulbo
+  ctx.textAlign   = 'center';
+  ctx.font        = 'bold 18px Bebas Neue,sans-serif';
+  ctx.fillStyle   = needleTemp >= 0 && needleTemp <= 4 ? '#2ecc71' : '#e74c3c';
+  ctx.shadowColor = 'rgba(0,0,0,0.8)';
+  ctx.shadowBlur  = 6;
+  ctx.fillText(needleTemp.toFixed(1) + ' °C', tx + tw / 2, bulbCY + bulbR + 20);
+  ctx.shadowBlur  = 0;
+  ctx.textAlign   = 'left';
+}
+
+function tempToThermY(t, ty, th) {
+  return ty + th - ((t - TEMP_MIN) / (TEMP_MAX - TEMP_MIN)) * th;
+}
+
+// ── Barra de medición (derecha, interactiva) ──
+function drawGauge(ts) {
+  const gx = GAUGE_X;
+  const gt = GAUGE_TOP;
+  const gb = GAUGE_BOT;
+  const gw = GAUGE_W;
+
+  // Sombra barra
+  ctx.shadowColor = 'rgba(41,128,185,0.5)';
+  ctx.shadowBlur  = 18;
+
+  // Contenedor exterior
+  roundRect(gx - 4, gt - 4, gw + 8, gb - gt + 8, 8);
+  ctx.fillStyle = 'rgba(20,30,50,0.8)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(100,160,220,0.3)';
+  ctx.lineWidth   = 2;
+  ctx.stroke();
+
+  // Zona CORRECTA (verde, 0-4°C)
+  const zy0 = tempToY(TARGET_MAX); // arriba (4°C)
+  const zy1 = tempToY(TARGET_MIN); // abajo  (0°C)
+  ctx.fillStyle   = 'rgba(46,204,113,0.22)';
+  ctx.strokeStyle = 'rgba(46,204,113,0.6)';
+  ctx.lineWidth   = 1.5;
+  ctx.fillRect(gx, zy0, gw, zy1 - zy0);
+  ctx.strokeRect(gx, zy0, gw, zy1 - zy0);
+
+  // Zona de advertencia (> 4°C, naranja)
+  const zwTop = tempToY(TEMP_MAX);
+  ctx.fillStyle = 'rgba(231,76,60,0.1)';
+  ctx.fillRect(gx, zwTop, gw, zy0 - zwTop);
+
+  // Zona negativa (< 0°C, azul hielo)
+  const zwBot = tempToY(TEMP_MIN);
+  ctx.fillStyle = 'rgba(142,68,173,0.15)';
+  ctx.fillRect(gx, zy1, gw, zwBot - zy1);
+
+  ctx.shadowBlur = 0;
+
+  // Escala de la barra
+  ctx.strokeStyle = 'rgba(150,200,255,0.35)';
+  ctx.lineWidth   = 1;
+  ctx.fillStyle   = '#7fb3d3';
+  ctx.font        = 'bold 11px Nunito,sans-serif';
+  ctx.textAlign   = 'right';
+  for(let t2 = TEMP_MIN; t2 <= TEMP_MAX; t2++) {
+    const my = tempToY(t2);
+    ctx.beginPath();
+    ctx.moveTo(gx - 2, my);
+    ctx.lineTo(gx - 8, my);
+    ctx.stroke();
+    ctx.fillText(t2 + '°', gx - 10, my + 4);
+  }
+  ctx.textAlign = 'left';
+
+  // Marca de objetivo (línea roja parpadeante)
+  const ty2  = tempToY(targetTemp);
+  const pulse = 0.6 + 0.4 * Math.abs(Math.sin(ts / 300));
+  ctx.save();
+  ctx.globalAlpha = pulse;
+  ctx.strokeStyle = '#e74c3c';
+  ctx.lineWidth   = 2.5;
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath();
+  ctx.moveTo(gx - 20, ty2);
+  ctx.lineTo(gx + gw + 20, ty2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  // Etiqueta objetivo
+  ctx.fillStyle = '#e74c3c';
+  ctx.font      = 'bold 14px Bebas Neue,sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('▶ OBJETIVO: ' + targetTemp.toFixed(1) + '°C', gx + gw + 24, ty2 + 5);
+  ctx.restore();
+
+  // Rótulos zona
+  ctx.font      = 'bold 12px Nunito,sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#2ecc71';
+  ctx.fillText('ZONA', gx + gw / 2, (zy0 + zy1) / 2 - 6);
+  ctx.fillText('SEGURA', gx + gw / 2, (zy0 + zy1) / 2 + 10);
+  ctx.textAlign = 'left';
+}
+
+// ── Aguja del medidor ──
+function drawNeedle(ts) {
+  const nt  = (STATE === 'frozen' || STATE === 'result') ? frozenTemp : needleTemp;
+  if(nt === null && STATE !== 'playing') return;
+  const drawTemp = STATE === 'playing' ? needleTemp : frozenTemp;
+
+  const ny = tempToY(drawTemp);
+  const nx = GAUGE_X + GAUGE_W + 8;
+
+  // Sombra aguja
+  ctx.shadowColor = 'rgba(0,0,0,0.6)';
+  ctx.shadowBlur  = 8;
+
+  // Color de la aguja según posición
+  let needleCol;
+  if(drawTemp >= TARGET_MIN && drawTemp <= TARGET_MAX) {
+    needleCol = '#2ecc71';
+  } else if(drawTemp < TARGET_MIN) {
+    needleCol = '#9b59b6';
+  } else {
+    needleCol = '#e74c3c';
+  }
+
+  if(STATE === 'frozen') {
+    // Pulso de brillo al congelar
+    const glow = Math.max(0, 1 - frozenAnim);
+    ctx.shadowColor = needleCol;
+    ctx.shadowBlur  = 20 + glow * 30;
+  }
+
+  // Triángulo / flecha
+  ctx.fillStyle = needleCol;
+  ctx.beginPath();
+  ctx.moveTo(nx,         ny);
+  ctx.lineTo(nx + 22,    ny - 10);
+  ctx.lineTo(nx + 22,    ny + 10);
+  ctx.closePath();
+  ctx.fill();
+
+  // Línea desde la barra
+  ctx.strokeStyle = needleCol;
+  ctx.lineWidth   = 3;
+  ctx.beginPath();
+  ctx.moveTo(GAUGE_X + GAUGE_W, ny);
+  ctx.lineTo(nx, ny);
+  ctx.stroke();
+
+  // Lectura numérica en la aguja
+  ctx.fillStyle = '#fff';
+  ctx.font      = 'bold 13px Bebas Neue,sans-serif';
+  ctx.textAlign = 'left';
+  ctx.shadowBlur = 4;
+  ctx.fillText(drawTemp.toFixed(1) + '°C', nx + 28, ny + 5);
+
+  ctx.shadowBlur  = 0;
+  ctx.shadowColor = 'transparent';
+
+  // Si está congelada: cerrojo
+  if(STATE === 'frozen' && frozenAnim > 0.2) {
+    ctx.font      = '18px serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('🔒', nx + 18, ny - 18);
+  }
+  ctx.textAlign = 'left';
+}
+
+// ── Partículas ──
+function drawParticles() {
+  particles.forEach(p => {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, p.life);
+    ctx.fillStyle   = p.color;
+    ctx.shadowColor = p.color;
+    ctx.shadowBlur  = 6;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r * p.life, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  });
+}
+
+// ── HUD superior / inferior ──
+function drawHUD(ts) {
+  // Barra superior
+  ctx.fillStyle = 'rgba(5,15,30,0.92)';
+  ctx.fillRect(0, 0, W, 52);
+  ctx.strokeStyle = 'rgba(41,128,185,0.4)';
+  ctx.lineWidth   = 1;
+  ctx.beginPath(); ctx.moveTo(0, 52); ctx.lineTo(W, 52); ctx.stroke();
+
+  // Título
+  ctx.fillStyle = '#aed6f1';
+  ctx.font      = 'bold 22px Bebas Neue,sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('🌡️  CONTROL DE TEMPERATURA  ·  PARRILLERA BURGER', W / 2, 32);
+
+  // Puntuación
+  ctx.fillStyle = '#f1c40f';
+  ctx.font      = 'bold 20px Bebas Neue,sans-serif';
+  ctx.textAlign = 'left';
+  shadow('#000', 4);
+  ctx.fillText('Pts: ' + score, 16, 34);
+  clearShadow();
+
+  // Rondas
+  ctx.fillStyle = '#3498db';
+  ctx.font      = 'bold 20px Bebas Neue,sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText('Medición ' + Math.min(round + 1, TOTAL_ROUNDS) + ' / ' + TOTAL_ROUNDS, W - 16, 34);
+
+  // Barra inferior (instrucción)
+  ctx.fillStyle = 'rgba(5,15,30,0.92)';
+  ctx.fillRect(0, H - 46, W, 46);
+  ctx.strokeStyle = 'rgba(41,128,185,0.4)';
+  ctx.lineWidth   = 1;
+  ctx.beginPath(); ctx.moveTo(0, H - 46); ctx.lineTo(W, H - 46); ctx.stroke();
+
+  if(STATE === 'playing') {
+    const pulse = 0.7 + 0.3 * Math.abs(Math.sin(ts / 400));
+    ctx.save();
+    ctx.globalAlpha = pulse;
+    ctx.fillStyle   = '#f1c40f';
+    ctx.font        = 'bold 18px Bebas Neue,sans-serif';
+    ctx.textAlign   = 'center';
+    ctx.fillText('👆  PULSA CUANDO EL MEDIDOR LLEGUE A  ' + targetTemp.toFixed(1) + ' °C', W / 2, H - 18);
+    ctx.restore();
+  } else if(STATE === 'frozen') {
+    ctx.fillStyle = resultColor;
+    ctx.font      = 'bold 20px Bebas Neue,sans-serif';
+    ctx.textAlign = 'center';
+    shadow('#000', 6);
+    ctx.fillText(resultMsg + '  →  ' + resultPts + ' pts', W / 2, H - 16);
+    clearShadow();
+  }
+  ctx.textAlign = 'left';
+
+  // Minigráfico historial de rondas (puntos pequeños)
+  const dotSpacing = 28;
+  const dotsStartX = W / 2 - (TOTAL_ROUNDS / 2) * dotSpacing + dotSpacing / 2;
+  const dotsY      = H - 40;
+  for(let i = 0; i < TOTAL_ROUNDS; i++) {
+    const dx = dotsStartX + i * dotSpacing;
+    if(i < roundResults.length) {
+      const res = roundResults[i];
+      ctx.fillStyle = res.pts === 100 ? '#2ecc71' : res.pts === 50 ? '#f1c40f' : '#e74c3c';
+    } else if(i === round && STATE === 'playing') {
+      ctx.fillStyle = '#3498db';
+    } else {
+      ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    }
+    ctx.beginPath();
+    ctx.arc(dx, dotsY + 22, 6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Panel info producto (centro izquierda)
+  drawProductInfo();
+}
+
+function drawProductInfo() {
+  // Panel de producto cárnico con temperatura objetivo
+  const px = 260, py = 80, pw = 250, ph = 290;
+
+  ctx.fillStyle   = 'rgba(10,20,40,0.85)';
+  roundRect(px, py, pw, ph, 12);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(41,128,185,0.4)';
+  ctx.lineWidth   = 1.5;
+  ctx.stroke();
+
+  // Cabecera
+  roundRect(px, py, pw, 36, {tl:12, tr:12, bl:0, br:0});
+  ctx.fillStyle = 'rgba(41,128,185,0.7)';
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.font      = 'bold 14px Bebas Neue,sans-serif';
+  ctx.textAlign = 'center';
+  shadow('#000', 2);
+  ctx.fillText('🥩 PRODUCTO CÁRNICO', px + pw / 2, py + 23);
+  clearShadow();
+
+  // Ícono producto
+  ctx.font      = '42px serif';
+  ctx.fillText('🍔', px + pw / 2, py + 90);
+
+  // Temperatura objetivo grande
+  ctx.fillStyle = '#fff';
+  ctx.font      = 'bold 13px Nunito,sans-serif';
+  ctx.fillText('Temperatura de refrigeración', px + pw / 2, py + 116);
+
+  ctx.font      = 'bold 40px Bebas Neue,sans-serif';
+  ctx.fillStyle = '#3498db';
+  shadow('#1a6fb5', 8);
+  ctx.fillText(targetTemp.toFixed(1) + ' °C', px + pw / 2, py + 158);
+  clearShadow();
+
+  // Barra de tolerancia visual
+  const bx = px + 20, bw = pw - 40, bh = 14, by2 = py + 172;
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  roundRect(bx, by2, bw, bh, 6);
+  ctx.fill();
+  // Zona verde ±0.3
+  const totalRange = TEMP_MAX - TEMP_MIN;
+  const greenStart = ((targetTemp - TOLERANCE_GREEN - TEMP_MIN) / totalRange) * bw;
+  const greenEnd   = ((targetTemp + TOLERANCE_GREEN - TEMP_MIN) / totalRange) * bw;
+  ctx.fillStyle = '#2ecc71';
+  roundRect(bx + Math.max(0, greenStart), by2, Math.min(bw, greenEnd - Math.max(0, greenStart)), bh, 4);
+  ctx.fill();
+  // Zona amarilla ±0.8
+  const yelStart = ((targetTemp - TOLERANCE_YELLOW - TEMP_MIN) / totalRange) * bw;
+  const yelEnd   = ((targetTemp + TOLERANCE_YELLOW - TEMP_MIN) / totalRange) * bw;
+  ctx.fillStyle = 'rgba(241,196,15,0.5)';
+  roundRect(bx + Math.max(0, yelStart), by2, Math.max(0, greenStart - yelStart), bh, 0);
+  ctx.fill();
+  roundRect(bx + Math.min(bw, greenEnd), by2, Math.max(0, Math.min(bw, yelEnd) - greenEnd), bh, 0);
+  ctx.fill();
+  // Aguja en la barra
+  const needleBarX = bx + ((needleTemp - TEMP_MIN) / totalRange) * bw;
+  ctx.strokeStyle = STATE === 'frozen' ? resultColor : '#fff';
+  ctx.lineWidth   = 2;
+  ctx.beginPath(); ctx.moveTo(needleBarX, by2 - 3); ctx.lineTo(needleBarX, by2 + bh + 3); ctx.stroke();
+
+  // Leyenda
+  ctx.fillStyle = '#7fb3d3';
+  ctx.font      = '10px Nunito,sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('🟢 ±0.3° = 100pts   🟡 ±0.8° = 50pts', px + pw / 2, by2 + bh + 14);
+
+  // Instrucción BPM
+  ctx.fillStyle = '#aed6f1';
+  ctx.font      = '11px Nunito,sans-serif';
+  ctx.fillText('Rango seguro de refrigeración: 0–4 °C', px + pw / 2, by2 + bh + 32);
+  ctx.fillText('Evita la proliferación bacteriana', px + pw / 2, by2 + bh + 47);
+
+  // Clasificación cárnica
+  ctx.fillStyle = 'rgba(255,255,255,0.12)';
+  roundRect(px + 12, py + ph - 44, pw - 24, 32, 6);
+  ctx.fill();
+  ctx.fillStyle = '#f39c12';
+  ctx.font      = 'bold 11px Nunito,sans-serif';
+  ctx.fillText('Ronda ' + Math.min(round + 1, TOTAL_ROUNDS) + '  ·  Vel. ' + NEEDLE_SPEED_BASE.toFixed(1) + '+', px + pw / 2, py + ph - 24);
+  ctx.textAlign = 'left';
+}
+
+// ── Feedback al congelar ──
+function drawFrozenFeedback(ts) {
+  if(frozenAnim < 0.05) return;
+
+  const ty2 = tempToY(frozenTemp);
+  const nx  = GAUGE_X + GAUGE_W + 8;
+
+  // Línea horizontal congelada
+  ctx.save();
+  ctx.globalAlpha = Math.min(1, frozenAnim * 2);
+  ctx.strokeStyle = resultColor;
+  ctx.lineWidth   = 2;
+  ctx.setLineDash([5, 5]);
+  ctx.beginPath();
+  ctx.moveTo(GAUGE_X, ty2);
+  ctx.lineTo(nx + 80, ty2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Diferencia con el objetivo
+  const diff  = (frozenTemp - targetTemp).toFixed(2);
+  const diffTxt = diff > 0 ? '+' + diff : diff;
+  ctx.fillStyle = resultColor;
+  ctx.font      = 'bold 16px Bebas Neue,sans-serif';
+  ctx.textAlign = 'left';
+  shadow('#000', 5);
+  ctx.fillText('GOT: ' + frozenTemp.toFixed(1) + '°C  (' + diffTxt + '°)', nx + 28, ty2 - 14);
+  clearShadow();
+
+  ctx.restore();
+}
+
+// ── Pantalla de resultado final ──
+function drawResult(ts) {
+  // Overlay
+  ctx.fillStyle = 'rgba(5,15,30,0.92)';
+  ctx.fillRect(0, 0, W, H);
+
+  const t = ts / 1000;
+  const total   = TOTAL_ROUNDS * 100;
+  const pct     = Math.round((score / total) * 100);
+  let grade, gradeCol;
+  if(pct >= 90) { grade = '⭐ EXPERTO EN FRÍO'; gradeCol = '#2ecc71'; }
+  else if(pct >= 70) { grade = '🥈 BUEN CONTROL'; gradeCol = '#f1c40f'; }
+  else if(pct >= 50) { grade = '🥉 EN PRÁCTICA'; gradeCol = '#e67e22'; }
+  else              { grade = '❌ NECESITA MEJORAR'; gradeCol = '#e74c3c'; }
+
+  // Título
+  ctx.fillStyle = '#aed6f1';
+  ctx.font      = 'bold 48px Bebas Neue,sans-serif';
+  ctx.textAlign = 'center';
+  shadow('rgba(41,128,185,0.8)', 14);
+  ctx.fillText('🌡️  RESULTADO FINAL', W / 2, 74);
+  clearShadow();
+
+  ctx.fillStyle = gradeCol;
+  ctx.font      = 'bold 32px Bebas Neue,sans-serif';
+  shadow('#000', 8);
+  ctx.fillText(grade, W / 2, 112);
+  clearShadow();
+
+  // Puntaje grande
+  ctx.fillStyle = '#f1c40f';
+  ctx.font      = 'bold 60px Bebas Neue,sans-serif';
+  shadow('#b7950b', 10);
+  ctx.fillText(score + ' / ' + total + ' pts', W / 2, 178);
+  clearShadow();
+
+  ctx.fillStyle = '#7fb3d3';
+  ctx.font      = 'bold 22px Bebas Neue,sans-serif';
+  ctx.fillText(pct + '% de precisión', W / 2, 210);
+
+  // Tabla de rondas
+  const cols = 5, rowH = 30;
+  const tableX = 60, tableY = 228, tableW = W - 120;
+  const colW = tableW / cols;
+
+  // Cabecera
+  ctx.fillStyle = 'rgba(41,128,185,0.5)';
+  ctx.fillRect(tableX, tableY, tableW, rowH);
+  ctx.fillStyle = '#fff';
+  ctx.font      = 'bold 13px Bebas Neue,sans-serif';
+  ctx.textAlign = 'center';
+  ['#', 'OBJETIVO', 'MEDIDO', 'DIFERENCIA', 'PUNTOS'].forEach((h, i) => {
+    ctx.fillText(h, tableX + colW * i + colW / 2, tableY + 20);
+  });
+
+  // Filas
+  roundResults.forEach((r, i) => {
+    const ry   = tableY + rowH * (i + 1);
+    const diff = (r.got - r.target).toFixed(2);
+    const diffTxt = diff > 0 ? '+' + diff : diff;
+    ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.08)';
+    ctx.fillRect(tableX, ry, tableW, rowH);
+    ctx.fillStyle = r.pts === 100 ? '#2ecc71' : r.pts === 50 ? '#f1c40f' : '#e74c3c';
+    ctx.font      = '13px Nunito,sans-serif';
+    const cells   = [i + 1, r.target.toFixed(1) + '°C', r.got.toFixed(1) + '°C', diffTxt + '°', r.pts];
+    cells.forEach((c, j) => {
+      ctx.fillText(c, tableX + colW * j + colW / 2, ry + 20);
+    });
+  });
+
+  // Botones
+  const bHov1 = hov(200, H - 64, 170, 42);
+  const bHov2 = hov(430, H - 64, 170, 42);
+  roundRect(200, H - 64, 170, 42, 10);
+  ctx.fillStyle = bHov1 ? '#2980b9' : '#1a6fb5'; ctx.fill();
+  ctx.strokeStyle = '#5dade2'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 18px Bebas Neue,sans-serif';
+  ctx.fillText('▶  JUGAR DE NUEVO', 285, H - 36);
+
+  roundRect(430, H - 64, 170, 42, 10);
+  ctx.fillStyle = bHov2 ? '#27ae60' : '#1e8449'; ctx.fill();
+  ctx.strokeStyle = '#58d68d'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = '#fff';
+  ctx.fillText('☰  MENÚ', 515, H - 36);
+
+  ctx.textAlign = 'left';
+}
+
+// ── Pantalla de menú ──
+function drawMenuScreen(ts) {
+  ctx.fillStyle = 'rgba(5,15,30,0.9)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#aed6f1';
+  ctx.font      = 'bold 52px Bebas Neue,sans-serif';
+  ctx.textAlign = 'center';
+  shadow('rgba(41,128,185,0.9)', 16);
+  ctx.fillText('🌡️  CONTROL DE TEMPERATURA', W / 2, H / 2 - 20);
+  clearShadow();
+  ctx.fillStyle = '#7fb3d3';
+  ctx.font      = '18px Nunito,sans-serif';
+  ctx.fillText('Pulsa ESPACIO o haz clic para iniciar', W / 2, H / 2 + 20);
+  ctx.textAlign = 'left';
+}
+
+// ================================================================
+//  CLICK RESULT
+// ================================================================
+canvas.addEventListener('click', e => {
+  if(STATE !== 'result') return;
+  const {x: mx, y: my} = toCanvasCoords(e.clientX, e.clientY);
+  if(inRect(mx, my, 200, H - 64, 170, 42)) startGame();
+  if(inRect(mx, my, 430, H - 64, 170, 42)) goBack();
+});
+
+function goBack() {
+  if(window.parent && window.parent.exitGame) window.parent.exitGame();
+  else if(window.onGameEnd) window.onGameEnd();
+  else { STATE = 'menu'; }
+}
+
+// ================================================================
+//  HELPERS
+// ================================================================
+function roundRect(x, y, w, h, r) {
+  if(typeof r === 'object') {
+    const {tl=0, tr=0, bl=0, br=0} = r;
+    ctx.beginPath();
+    ctx.moveTo(x+tl,y); ctx.lineTo(x+w-tr,y); ctx.quadraticCurveTo(x+w,y,x+w,y+tr);
+    ctx.lineTo(x+w,y+h-br); ctx.quadraticCurveTo(x+w,y+h,x+w-br,y+h);
+    ctx.lineTo(x+bl,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-bl);
+    ctx.lineTo(x,y+tl); ctx.quadraticCurveTo(x,y,x+tl,y); ctx.closePath();
+  } else {
+    ctx.beginPath();
+    ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+    ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+    ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+    ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y); ctx.closePath();
+  }
+}
+
+function shadow(col, blur) { ctx.shadowColor = col; ctx.shadowBlur = blur; }
+function clearShadow()     { ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; }
+function inRect(mx, my, x, y, w, h) { return mx>=x && mx<=x+w && my>=y && my<=y+h; }
+let mousePos = {x:0, y:0};
+function hov(x, y, w, h) { return inRect(mousePos.x, mousePos.y, x, y, w, h); }
+
+canvas.addEventListener('mousemove', e => {
+  mousePos = toCanvasCoords(e.clientX, e.clientY);
+});
+
+// ================================================================
+//  AJUSTE DE CANVAS
+// ================================================================
+function fitCanvas() {
+  const scale = Math.min(window.innerWidth / W, window.innerHeight / H);
+  canvas.style.width  = Math.floor(W * scale) + 'px';
+  canvas.style.height = Math.floor(H * scale) + 'px';
+}
+fitCanvas();
+window.addEventListener('resize', fitCanvas);
+screen.orientation && screen.orientation.addEventListener('change', fitCanvas);
+
+// ================================================================
+//  ARRANCAR (pantalla de menú inicial)
+// ================================================================
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

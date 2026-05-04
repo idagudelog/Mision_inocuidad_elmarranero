@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Separación de Residuos – Parrillera Burger</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Nunito:wght@400;700;800;900&display=swap" rel="stylesheet"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;background:#0d0d0d;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;user-select:none;-webkit-user-select:none}
+#wrap{width:100%;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;line-height:0;flex-shrink:0}
+canvas{display:block;border:3px solid #27ae60;box-shadow:0 0 40px rgba(39,174,96,0.5);touch-action:none;cursor:grab}
+canvas.dragging{cursor:grabbing}
+#portrait-hint{display:none;text-align:center;padding:14px 20px;color:rgba(255,255,255,0.4);font-family:'Nunito',sans-serif;font-size:12px;line-height:1.8;max-width:340px}
+#portrait-hint b{color:rgba(255,255,255,0.7)}
+@media(orientation:portrait){html,body{justify-content:flex-start;padding-top:8px}#portrait-hint{display:block}}
+/* ── INTRO OVERLAY ── */
+#game-intro{position:fixed;inset:0;z-index:999;background:rgba(4,10,8,0.97);font-family:'Nunito',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:10px;padding:14px 18px;overflow-y:auto}
+#game-intro.hide{display:none}
+.po-icon{font-size:60px;line-height:1}
+.po-title{font-family:'Bebas Neue',sans-serif;font-size:clamp(20px,6vw,40px);letter-spacing:2px;text-align:center;color:#fff}
+.po-sub{font-family:'Bebas Neue',sans-serif;font-size:17px;color:#27ae60;text-align:center}
+.po-bins{display:flex;gap:14px;max-width:560px;width:100%}
+.po-bin{flex:1;border-radius:10px;padding:10px 8px;text-align:center}
+.po-bin h3{font-family:'Bebas Neue',sans-serif;font-size:17px;margin-bottom:3px}
+.po-bin p{font-size:11px;color:#ccc;line-height:1.55}
+.po-rules{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:12px 18px;max-width:560px;width:100%}
+.po-rules li{font-size:12.5px;color:#bdc3c7;margin-bottom:5px;line-height:1.5;list-style:none}
+.po-btn{padding:10px 36px;border-radius:12px;border:none;cursor:pointer;font-family:'Bebas Neue',sans-serif;font-size:21px;letter-spacing:2px;color:#fff;background:#27ae60;transition:opacity 0.2s,transform 0.1s;margin-top:4px}
+.po-btn:hover{opacity:0.85;transform:scale(1.04)}
+@media(max-height:520px){.po-icon{font-size:32px}.po-title{font-size:17px}.po-bins{display:none}.po-rules li{font-size:11px;margin-bottom:2px}.po-btn{padding:7px 22px;font-size:16px}}
+</style>
+</head>
+<body>
+
+<!-- ══ INTRO ══ -->
+<div id="game-intro">
+  <div class="po-icon">♻️</div>
+  <div class="po-title">Separación de Residuos Sólidos</div>
+  <div class="po-sub">🗑️ Clasificación correcta — Parrillera Burger</div>
+  <div class="po-bins">
+    <div class="po-bin" style="background:rgba(255,255,255,0.10);border:2px solid #e0e0e0">
+      <h3 style="color:#f0f0f0">🗑️ BLANCA</h3>
+      <p><b>Aprovechables</b><br>Papel, cartón, plástico, vidrio, metales limpios</p>
+    </div>
+    <div class="po-bin" style="background:rgba(39,174,96,0.13);border:2px solid #27ae60">
+      <h3 style="color:#2ecc71">🗑️ VERDE</h3>
+      <p><b>Orgánicos Aprovechables</b><br>Restos de comida, cascaras, servilletas con grasa, residuos vegetales</p>
+    </div>
+    <div class="po-bin" style="background:rgba(30,30,30,0.6);border:2px solid #555">
+      <h3 style="color:#aaa">🗑️ NEGRA</h3>
+      <p><b>No Aprovechables</b><br>Icopor, papel metalizado, colillas, plástico sucio sin recuperación</p>
+    </div>
+  </div>
+  <ul class="po-rules">
+    <li>🖱️ <b>Haz clic</b> en el residuo y luego en la caneca correcta</li>
+    <li>📱 En móvil: toca el residuo y luego toca la caneca</li>
+    <li>✅ Correcto = <b>100 pts</b> · Incorrecto = <b>−30 pts</b> (puedes reintentar)</li>
+    <li>⚡ Bonus de velocidad si clasificas sin errores varios seguidos</li>
+    <li>🎯 Clasifica <b>20 residuos</b> para completar el turno</li>
+  </ul>
+  <button class="po-btn" onclick="launchGame()">▶  INICIAR</button>
+</div>
+
+<div id="portrait-hint"><b>Gira el dispositivo</b> para mejor experiencia<br>📱 → 🖥️</div>
+<div id="wrap"><canvas id="c"></canvas></div>
+
+<script>
+// ================================================================
+//  SEPARACIÓN DE RESIDUOS SÓLIDOS — Minijuego 8
+//  Arrastra cada residuo a la caneca correcta
+// ================================================================
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+const W = 800, H = 520;
+const DPR = window.devicePixelRatio || 1;
+canvas.width  = W * DPR;
+canvas.height = H * DPR;
+ctx.scale(DPR, DPR);
+
+// ── Coordenadas lógicas desde evento de ratón/toque ──
+function toCC(cx, cy) {
+  const r = canvas.getBoundingClientRect();
+  return { x:(cx-r.left)*(W/r.width), y:(cy-r.top)*(H/r.height) };
+}
+
+// ================================================================
+//  CATÁLOGO DE RESIDUOS
+// ================================================================
+const BIN_WHITE = 'white';
+const BIN_GREEN = 'green';
+const BIN_BLACK = 'black';
+
+const ITEMS_CATALOG = [
+  // Aprovechables — caneca blanca
+  { label:'Botella PET limpia',       icon:'🧴', bin: BIN_WHITE, hint:'Plástico limpio → aprovechable' },
+  { label:'Cartón de empaque',         icon:'📦', bin: BIN_WHITE, hint:'Cartón → aprovechable' },
+  { label:'Lata de refresco',          icon:'🥫', bin: BIN_WHITE, hint:'Metal → aprovechable' },
+  { label:'Papel periódico',           icon:'📰', bin: BIN_WHITE, hint:'Papel seco → aprovechable' },
+  { label:'Botella de vidrio',         icon:'🍾', bin: BIN_WHITE, hint:'Vidrio → aprovechable' },
+  { label:'Bolsa plástica limpia',     icon:'🛍️', bin: BIN_WHITE, hint:'Plástico limpio → aprovechable' },
+  { label:'Tetrapack vacío',           icon:'🥛', bin: BIN_WHITE, hint:'Envase multicapa limpio → aprovechable' },
+  { label:'Tapa metálica',             icon:'🔩', bin: BIN_WHITE, hint:'Metal pequeño → aprovechable' },
+  { label:'Caja de cartón de pizza',   icon:'🍕', bin: BIN_WHITE, hint:'Cartón limpio → aprovechable' },
+  { label:'Frasco de vidrio vacío',    icon:'🫙', bin: BIN_WHITE, hint:'Vidrio → aprovechable' },
+  // Orgánicos aprovechables — caneca verde
+  { label:'Restos de lechuga',         icon:'🥬', bin: BIN_GREEN, hint:'Vegetal → orgánico aprovechable' },
+  { label:'Cáscara de papa',           icon:'🥔', bin: BIN_GREEN, hint:'Vegetal → orgánico aprovechable' },
+  { label:'Pan viejo',                 icon:'🍞', bin: BIN_GREEN, hint:'Alimento → orgánico aprovechable' },
+  { label:'Restos de carne cocida',    icon:'🥩', bin: BIN_GREEN, hint:'Alimento → orgánico aprovechable' },
+  { label:'Cáscara de limón',          icon:'🍋', bin: BIN_GREEN, hint:'Cítrico → orgánico aprovechable' },
+  { label:'Posos de café',             icon:'☕', bin: BIN_GREEN, hint:'Orgánico → aprovechable compost' },
+  { label:'Trozos de tomate',          icon:'🍅', bin: BIN_GREEN, hint:'Vegetal → orgánico aprovechable' },
+  { label:'Servilleta con grasa',      icon:'🧻', bin: BIN_GREEN, hint:'Papel contaminado con grasa → orgánico' },
+  { label:'Cebolla sobrante',          icon:'🧅', bin: BIN_GREEN, hint:'Vegetal → orgánico aprovechable' },
+  { label:'Restos de ensalada',        icon:'🥗', bin: BIN_GREEN, hint:'Alimento → orgánico aprovechable' },
+  // No aprovechables — caneca negra
+  { label:'Vaso desechable de icopor', icon:'☕', bin: BIN_BLACK, hint:'Icopor → no aprovechable' },
+  { label:'Bolsa metalizada de papas', icon:'🥡', bin: BIN_BLACK, hint:'Plástico metalizado → no aprovechable' },
+  { label:'Colilla de cigarrillo',     icon:'🚬', bin: BIN_BLACK, hint:'Colilla → no aprovechable / peligroso' },
+  { label:'Pitillo plástico usado',    icon:'🥤', bin: BIN_BLACK, hint:'Plástico sucio → no aprovechable' },
+  { label:'Guante de látex usado',     icon:'🧤', bin: BIN_BLACK, hint:'Residuo sanitario → no aprovechable' },
+  { label:'Empaque de frituras',       icon:'🍟', bin: BIN_BLACK, hint:'Plastificado sucio → no aprovechable' },
+  { label:'Papel aluminio sucio',      icon:'🥘', bin: BIN_BLACK, hint:'Papel aluminio con grasa → no aprovechable' },
+  { label:'Tapabocas usado',           icon:'😷', bin: BIN_BLACK, hint:'Residuo sanitario → no aprovechable' },
+  { label:'Bolsita de salsa usada',    icon:'🫙', bin: BIN_BLACK, hint:'Sachet plástico → no aprovechable' },
+  { label:'Palillo de dientes usado',  icon:'🦷', bin: BIN_BLACK, hint:'Residuo mezclado → no aprovechable' },
+];
+
+// ================================================================
+//  GEOMETRÍA DE LAS CANECAS
+// ================================================================
+const BINS = {
+  [BIN_WHITE]: { x:60,  y:310, w:155, h:160, label:'BLANCA',  sublabel:'Aprovechables',   color:'#e0e0e0', dark:'#aaa',   emoji:'🗑️', bgAlpha:0.08 },
+  [BIN_GREEN]: { x:322, y:310, w:155, h:160, label:'VERDE',   sublabel:'Orgánicos Aprov.', color:'#27ae60', dark:'#1a7a42', emoji:'🗑️', bgAlpha:0.12 },
+  [BIN_BLACK]: { x:584, y:310, w:155, h:160, label:'NEGRA',   sublabel:'No Aprovechables', color:'#888888', dark:'#444444', emoji:'🗑️', bgAlpha:0.16 },
+};
+
+// ================================================================
+//  ESTADO
+// ================================================================
+let STATE        = 'idle';   // idle | playing | result
+let queue        = [];       // residuos pendientes esta ronda
+let selectedItem = null;    // ítem seleccionado con clic
+let rafId        = null;     // ID del requestAnimationFrame activo
+let score        = 0;
+let combo        = 0;
+let errors       = 0;
+let done         = 0;
+const TOTAL      = 20;
+let particles    = [];
+let feedback     = null;     // { msg, color, x, y, ttl }
+let binShake     = {};       // { white/green/black: ttl }
+let binBounce    = {};       // { white/green/black: ttl } para acierto
+let lastTime     = 0;
+
+// Posición "home" de la tarjeta en bandeja
+const CARD_HX = 290, CARD_HY = 148, CARD_W = 220, CARD_H = 84;
+
+// ================================================================
+//  INICIALIZAR
+// ================================================================
+function launchGame() {
+  document.getElementById('game-intro').classList.add('hide');
+  startGame();
+}
+
+function startGame() {
+  // Cancelar loop previo para evitar múltiples loops en simultáneo
+  if(rafId) { cancelAnimationFrame(rafId); rafId = null; }
+  // Mezclar catálogo y tomar 20
+  const shuffled = [...ITEMS_CATALOG].sort(() => Math.random()-0.5);
+  queue       = shuffled.slice(0, TOTAL).map((it, i) => ({ ...it, id:i }));
+  score       = 0;
+  combo       = 0;
+  errors      = 0;
+  done        = 0;
+  particles    = [];
+  feedback     = null;
+  binShake     = {};
+  binBounce    = {};
+  selectedItem = null;
+  lastTime     = 0;
+  STATE       = 'playing';
+  rafId = requestAnimationFrame(loop);
+}
+
+// ================================================================
+//  INTERACCIÓN — CLIC / TAP (seleccionar residuo, luego caneca)
+// ================================================================
+canvas.addEventListener('click', e => {
+  const {x,y} = toCC(e.clientX, e.clientY);
+  if(STATE === 'playing') { handleGameClick(x, y); }
+  else if(STATE === 'result') {
+    if(inRect(x,y, 200,H-72, 180,44)) startGame();
+    if(inRect(x,y, 420,H-72, 180,44)) goBack();
+  }
+});
+canvas.addEventListener('touchend', e => {
+  const t = e.changedTouches[0];
+  const {x,y} = toCC(t.clientX, t.clientY);
+  if(STATE === 'playing') { handleGameClick(x, y); }
+  else if(STATE === 'result') {
+    if(inRect(x,y, 200,H-72, 180,44)) startGame();
+    if(inRect(x,y, 420,H-72, 180,44)) goBack();
+  }
+  e.preventDefault();
+}, {passive:false});
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+// ================================================================
+//  LÓGICA CLIC — seleccionar residuo y asignar caneca
+// ================================================================
+function handleGameClick(x, y) {
+  if(queue.length === 0) return;
+  // Clic en la tarjeta → seleccionar / deseleccionar
+  if(inRect(x, y, CARD_HX, CARD_HY, CARD_W, CARD_H)) {
+    selectedItem = selectedItem ? null : queue[0];
+    return;
+  }
+  // Con ítem seleccionado, clic en caneca → colocar
+  if(selectedItem) {
+    for(const [key, b] of Object.entries(BINS)) {
+      if(inRect(x, y, b.x, b.y, b.w, b.h)) {
+        tryPlace(key, b);
+        return;
+      }
+    }
+    // Clic fuera de caneca → deseleccionar
+    selectedItem = null;
+  }
+}
+
+function tryPlace(key, b) {
+  if(!selectedItem) return;
+  if(key === selectedItem.bin) {
+    // ✅ CORRECTO
+    const bonus = combo >= 3 ? 20 : 0;
+    const pts   = 100 + bonus;
+    score += pts;
+    combo++;
+    done++;
+    queue.shift();
+    spawnParticles(b.x+b.w/2, b.y+b.h/2, b.color, 28);
+    showFeedback('✅ ' + (bonus>0 ? `+${pts} ¡COMBO x${combo}!` : `+${pts} CORRECTO`), b.color, b.x+b.w/2, b.y-20);
+    binBounce[key] = 0.5;
+    selectedItem = null;
+    if(done >= TOTAL || queue.length === 0) {
+      setTimeout(()=>{ STATE='result'; }, 700);
+    }
+  } else {
+    // ❌ INCORRECTO — se descarta el ítem y se pasa al siguiente
+    score = Math.max(0, score - 30);
+    errors++;
+    combo = 0;
+    done++;
+    const discarded = selectedItem;
+    queue.shift();
+    selectedItem = null;
+    binShake[key] = 0.4;
+    showFeedback('❌ −30 · Debía ir en caneca ' + BINS[discarded.bin].label.toLowerCase() + ' · ' + discarded.hint, '#e74c3c', W/2, CARD_HY - 28);
+    if(done >= TOTAL || queue.length === 0) {
+      setTimeout(()=>{ STATE='result'; }, 900);
+    }
+  }
+}
+
+function showFeedback(msg, color, x, y) {
+  feedback = { msg, color, x, y, ttl: 2.0 };
+}
+
+// ================================================================
+//  PARTÍCULAS
+// ================================================================
+function spawnParticles(x, y, color, n) {
+  for(let i=0;i<n;i++){
+    const a = Math.random()*Math.PI*2;
+    const s = 40+Math.random()*120;
+    particles.push({ x, y, vx:Math.cos(a)*s, vy:Math.sin(a)*s-30,
+      life:1, decay:0.6+Math.random()*0.8, r:3+Math.random()*5, color });
+  }
+}
+
+// ================================================================
+//  LOOP
+// ================================================================
+function loop(ts) {
+  const dt = Math.min((ts-lastTime)/1000, 0.05);
+  lastTime = ts;
+  update(dt);
+  draw(ts);
+  rafId = requestAnimationFrame(loop);
+}
+
+function update(dt) {
+  // Partículas
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i];
+    p.x+=p.vx*dt; p.y+=p.vy*dt; p.vy+=160*dt;
+    p.life-=p.decay*dt;
+    if(p.life<=0) particles.splice(i,1);
+  }
+  // Feedback TTL
+  if(feedback) { feedback.ttl -= dt; if(feedback.ttl<=0) feedback=null; }
+  // Shakes
+  for(const k of Object.keys(binShake))  { binShake[k]  -= dt; if(binShake[k] <=0) delete binShake[k];  }
+  for(const k of Object.keys(binBounce)) { binBounce[k] -= dt; if(binBounce[k]<=0) delete binBounce[k]; }
+}
+
+// ================================================================
+//  DIBUJO
+// ================================================================
+function draw(ts) {
+  ctx.clearRect(0,0,W,H);
+  drawBG(ts);
+  drawTitle();
+  drawQueue(ts);
+  drawBins(ts);
+  drawParticles();
+  drawFeedback(ts);
+  drawHUD();
+  if(STATE==='result') drawResult(ts);
+}
+
+// ── Fondo ──
+function drawBG(ts) {
+  const bg = ctx.createLinearGradient(0,0,0,H);
+  bg.addColorStop(0,'#040e07');
+  bg.addColorStop(1,'#091407');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0,0,W,H);
+  ctx.strokeStyle = 'rgba(39,174,96,0.05)';
+  ctx.lineWidth   = 1;
+  for(let x=0;x<W;x+=50){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
+  for(let y=0;y<H;y+=50){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+}
+
+// ── Título y HUD superior ──
+function drawTitle() {
+  ctx.fillStyle = 'rgba(3,8,5,0.92)';
+  ctx.fillRect(0,0,W,52);
+  ctx.strokeStyle = 'rgba(39,174,96,0.35)';
+  ctx.lineWidth   = 1;
+  ctx.beginPath(); ctx.moveTo(0,52); ctx.lineTo(W,52); ctx.stroke();
+
+  ctx.fillStyle = '#a9dfbf';
+  ctx.font      = 'bold 20px Bebas Neue,sans-serif';
+  ctx.textAlign = 'center';
+  shadow('#000',4);
+  ctx.fillText('♻️  SEPARACIÓN DE RESIDUOS SÓLIDOS  ·  PARRILLERA BURGER', W/2, 33);
+  clearShadow();
+
+  ctx.fillStyle = '#f1c40f';
+  ctx.font      = 'bold 17px Bebas Neue,sans-serif';
+  ctx.textAlign = 'left';
+  shadow('#000',3);
+  ctx.fillText('Pts: ' + score, 14, 34);
+  clearShadow();
+
+  ctx.fillStyle = '#27ae60';
+  ctx.textAlign = 'right';
+  ctx.fillText(done + ' / ' + TOTAL + ' clasificados', W-14, 34);
+  ctx.textAlign = 'left';
+}
+
+function drawHUD() {
+  // Barra progreso abajo
+  ctx.fillStyle = 'rgba(3,8,5,0.94)';
+  ctx.fillRect(0,H-44,W,44);
+  ctx.strokeStyle = 'rgba(39,174,96,0.3)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(0,H-44); ctx.lineTo(W,H-44); ctx.stroke();
+
+  // Barra de progreso
+  const barW = W-120, bx=60, by=H-30, bh=12;
+  ctx.fillStyle = 'rgba(255,255,255,0.07)';
+  roundRect(bx,by,barW,bh,6); ctx.fill();
+  const fill = (done/TOTAL)*barW;
+  if(fill>0){
+    const gr = ctx.createLinearGradient(bx,0,bx+fill,0);
+    gr.addColorStop(0,'#27ae60'); gr.addColorStop(1,'#2ecc71');
+    ctx.fillStyle = gr;
+    roundRect(bx,by,fill,bh,6); ctx.fill();
+  }
+  ctx.fillStyle = '#7dcea0';
+  ctx.font = '11px Nunito,sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(done + ' de ' + TOTAL + ' residuos clasificados', W/2, by+bh+12);
+
+  // Combo badge
+  if(combo >= 2) {
+    ctx.fillStyle = combo>=5 ? '#f1c40f' : '#e67e22';
+    ctx.font = 'bold 14px Bebas Neue,sans-serif';
+    ctx.textAlign = 'left';
+    shadow('#000',5);
+    ctx.fillText('🔥 COMBO x' + combo, 14, H-22);
+    clearShadow();
+  }
+  // Errores
+  ctx.fillStyle = errors>0 ? '#e74c3c' : '#555';
+  ctx.font = '12px Nunito,sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText('❌ Errores: ' + errors, W-14, H-22);
+  ctx.textAlign = 'left';
+}
+
+// ── Área de la tarjeta actual y cola ──
+function drawQueue(ts) {
+  if(STATE !== 'playing') return;
+  if(queue.length === 0) return;
+
+  // Panel bandeja
+  ctx.fillStyle = 'rgba(10,22,12,0.85)';
+  roundRect(34,62,W-68,230,14); ctx.fill();
+  ctx.strokeStyle = 'rgba(39,174,96,0.25)'; ctx.lineWidth=1.5; ctx.stroke();
+
+  // Texto instrucción
+  ctx.fillStyle = '#7dcea0';
+  ctx.font = 'bold 12px Nunito,sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = selectedItem ? '#2ecc71' : '#7dcea0';
+  ctx.fillText(selectedItem ? '¡Ahora haz clic en la caneca correcta!' : 'Haz clic en el residuo para seleccionarlo · luego clic en la caneca', W/2, 84);
+  ctx.fillStyle = '#7dcea0';
+
+  // Cola de próximos ítems (máx 4, pequeños, a la derecha)
+  ctx.fillStyle = 'rgba(255,255,255,0.06)';
+  roundRect(560,96,200,168,10); ctx.fill();
+  ctx.fillStyle = '#6c8c70';
+  ctx.font = '11px Nunito,sans-serif';
+  ctx.fillText('PRÓXIMOS', 620, 112);
+
+  const previewCount = Math.min(4, queue.length-1);
+  for(let i=0;i<previewCount;i++){
+    const item = queue[i+1];
+    const px2 = 570, py2 = 120 + i*38;
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    roundRect(px2, py2, 182, 30, 7); ctx.fill();
+    ctx.font = '16px serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(item.icon, px2+8, py2+22);
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.font = '11px Nunito,sans-serif';
+    const lbl = item.label.length>22 ? item.label.slice(0,20)+'…' : item.label;
+    ctx.fillText(lbl, px2+30, py2+20);
+  }
+  if(previewCount < queue.length-1) {
+    ctx.fillStyle='#6c8c70'; ctx.font='10px Nunito,sans-serif'; ctx.textAlign='center';
+    ctx.fillText('+ ' + (queue.length-1-previewCount) + ' más…', 660, 286);
+  }
+
+  // ── Tarjeta principal ──
+  drawCard(queue[0], CARD_HX, CARD_HY, 1.0, ts, !selectedItem, selectedItem !== null);
+
+  ctx.textAlign = 'left';
+}
+
+function drawCard(item, x, y, alpha, ts, pulse, selected=false) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+
+  const p   = pulse ? 0.88 + 0.12*Math.abs(Math.sin(ts/600)) : 1;
+  const scl = selected ? 1.05 : (pulse ? p : 1);
+  ctx.translate(x + CARD_W/2, y + CARD_H/2);
+  ctx.scale(scl, scl);
+  ctx.translate(-(CARD_W/2), -(CARD_H/2));
+
+  // Sombra
+  ctx.shadowColor = selected ? 'rgba(46,204,113,0.9)' : 'rgba(39,174,96,0.45)';
+  ctx.shadowBlur  = selected ? 32 : (pulse ? 18*p : 8);
+
+  // Fondo
+  const grad = ctx.createLinearGradient(0,0,0,CARD_H);
+  grad.addColorStop(0, selected ? 'rgba(20,60,28,0.99)' : 'rgba(15,35,18,0.97)');
+  grad.addColorStop(1, selected ? 'rgba(10,40,15,0.99)' : 'rgba(8,20,10,0.97)');
+  ctx.fillStyle = grad;
+  roundRect(0, 0, CARD_W, CARD_H, 14); ctx.fill();
+  ctx.strokeStyle = selected ? '#2ecc71' : 'rgba(39,174,96,0.65)';
+  ctx.lineWidth   = selected ? 3 : 2;
+  ctx.stroke();
+
+  ctx.shadowBlur = 0;
+
+  // Overlay seleccionado
+  if(selected) {
+    ctx.fillStyle = 'rgba(46,204,113,0.10)';
+    roundRect(0, 0, CARD_W, CARD_H, 14); ctx.fill();
+  }
+
+  // Icono
+  ctx.font      = '38px serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(item.icon, CARD_W/2, 46);
+
+  // Texto
+  ctx.fillStyle = selected ? '#2ecc71' : '#e8f8ed';
+  ctx.font      = 'bold 14px Nunito,sans-serif';
+  ctx.fillText(item.label, CARD_W/2, 68);
+
+  // Indicador de selección
+  if(selected) {
+    ctx.fillStyle = 'rgba(46,204,113,0.7)';
+    ctx.font      = 'bold 10px Nunito,sans-serif';
+    ctx.fillText('✓ SELECCIONADO — clic en la caneca', CARD_W/2, CARD_H - 5);
+  }
+
+  ctx.restore();
+  ctx.textAlign = 'left';
+}
+
+// ── Canecas ──
+function drawBins(ts) {
+  for(const [key, b] of Object.entries(BINS)) {
+    const shake  = binShake[key]  ? Math.sin(ts*0.06)*6*(binShake[key]/0.4)  : 0;
+    const bounce = binBounce[key] ? -12*Math.abs(Math.sin(ts*0.025))*(binBounce[key]/0.5) : 0;
+    ctx.save();
+    ctx.translate(shake, bounce);
+
+    // Sombra de la caneca
+    ctx.shadowColor = b.color + '55';
+    ctx.shadowBlur  = selectedItem ? 22 : 8;
+
+    // Fondo caneca
+    ctx.fillStyle = `rgba(${hexToRgb(b.color)},${b.bgAlpha})`;
+    roundRect(b.x, b.y, b.w, b.h, 14); ctx.fill();
+    ctx.strokeStyle = b.color + (selectedItem ? 'cc' : '66');
+    ctx.lineWidth   = selectedItem ? 3 : 1.5;
+    roundRect(b.x, b.y, b.w, b.h, 14); ctx.stroke();
+
+    ctx.shadowBlur = 0;
+
+    // Cuerpo del bote (decorativo)
+    drawBinBody(b, key, ts);
+
+    // Etiqueta
+    ctx.fillStyle = b.color;
+    ctx.font      = 'bold 17px Bebas Neue,sans-serif';
+    ctx.textAlign = 'center';
+    shadow('#000',4);
+    ctx.fillText('CANECA ' + b.label, b.x+b.w/2, b.y+b.h-34);
+    clearShadow();
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font      = '10px Nunito,sans-serif';
+    ctx.fillText(b.sublabel, b.x+b.w/2, b.y+b.h-18);
+
+    ctx.restore();
+  }
+  ctx.textAlign = 'left';
+}
+
+function drawBinBody(b, key, ts) {
+  const cx = b.x + b.w/2;
+  const ty = b.y + 14;
+  const bh = b.h - 80;
+  const bw = b.w - 28;
+  const bx = b.x + 14;
+
+  // Tapa
+  ctx.fillStyle = b.color + 'cc';
+  roundRect(bx-4, ty, bw+8, 16, {tl:8,tr:8,bl:0,br:0}); ctx.fill();
+
+  // Cuerpo
+  const bodyGrad = ctx.createLinearGradient(bx, ty+16, bx+bw, ty+16);
+  bodyGrad.addColorStop(0, b.color+'30');
+  bodyGrad.addColorStop(0.5, b.color+'18');
+  bodyGrad.addColorStop(1, b.color+'30');
+  ctx.fillStyle = bodyGrad;
+  roundRect(bx, ty+16, bw, bh, {tl:0,tr:0,bl:10,br:10}); ctx.fill();
+  ctx.strokeStyle = b.color+'44'; ctx.lineWidth=1;
+  roundRect(bx, ty+16, bw, bh, {tl:0,tr:0,bl:10,br:10}); ctx.stroke();
+
+  // Símbolo reciclaje / hoja / X
+  ctx.font      = '26px serif';
+  ctx.textAlign = 'center';
+  const sym = key===BIN_WHITE ? '♻️' : key===BIN_GREEN ? '🌿' : '🚫';
+  ctx.fillText(sym, cx, ty + 16 + bh/2 + 9);
+}
+
+// ── Tarjeta siendo arrastrada ──
+function drawDragCard(ts) {
+  if(!currentItem) return;
+  // Sombra extra al arrastrar
+  ctx.save();
+  ctx.globalAlpha = 0.92;
+  ctx.translate(dragX + CARD_W/2, dragY + CARD_H/2);
+  ctx.scale(1.06, 1.06);
+  ctx.translate(-(CARD_W/2), -(CARD_H/2));
+  ctx.shadowColor = 'rgba(39,174,96,0.7)';
+  ctx.shadowBlur  = 28;
+  const grad = ctx.createLinearGradient(0,0,0,CARD_H);
+  grad.addColorStop(0,'rgba(20,50,24,0.98)'); grad.addColorStop(1,'rgba(10,28,12,0.98)');
+  ctx.fillStyle = grad;
+  roundRect(0,0,CARD_W,CARD_H,14); ctx.fill();
+  ctx.strokeStyle = '#2ecc71'; ctx.lineWidth=2.5; ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.font      = '38px serif'; ctx.textAlign='center';
+  ctx.fillText(currentItem.icon, CARD_W/2, 46);
+  ctx.fillStyle = '#e8f8ed'; ctx.font='bold 14px Nunito,sans-serif';
+  ctx.fillText(currentItem.label, CARD_W/2, 68);
+  ctx.restore();
+  ctx.textAlign = 'left';
+}
+
+// ── Partículas ──
+function drawParticles() {
+  particles.forEach(p => {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, p.life);
+    ctx.fillStyle   = p.color;
+    ctx.shadowColor = p.color; ctx.shadowBlur=6;
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.r*p.life,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  });
+}
+
+// ── Feedback flotante ──
+function drawFeedback(ts) {
+  if(!feedback) return;
+  const alpha = Math.min(1, feedback.ttl/0.5);
+  const rise  = (2.0 - feedback.ttl) * 22;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle   = feedback.color;
+  ctx.font        = 'bold 17px Bebas Neue,sans-serif';
+  ctx.textAlign   = 'center';
+  shadow('#000',6);
+  ctx.fillText(feedback.msg, Math.min(Math.max(feedback.x, 200), W-200), feedback.y - rise);
+  clearShadow();
+  ctx.restore();
+}
+
+// ── Pantalla de resultado ──
+function drawResult(ts) {
+  ctx.fillStyle = 'rgba(3,8,5,0.96)';
+  ctx.fillRect(0,0,W,H);
+
+  const maxScore = TOTAL*100;
+  const pct = Math.round((score/maxScore)*100);
+  let grade, gradeCol;
+  if(pct>=90)      { grade='⭐ EXPERTO EN RECICLAJE'; gradeCol='#2ecc71'; }
+  else if(pct>=70) { grade='🥈 BUEN CLASIFICADOR';   gradeCol='#f1c40f'; }
+  else if(pct>=50) { grade='🥉 EN PRÁCTICA';         gradeCol='#e67e22'; }
+  else             { grade='❌ NECESITA MEJORAR';     gradeCol='#e74c3c'; }
+
+  ctx.fillStyle = '#a9dfbf';
+  ctx.font      = 'bold 44px Bebas Neue,sans-serif';
+  ctx.textAlign = 'center';
+  shadow('rgba(39,174,96,0.8)',16);
+  ctx.fillText('♻️  RESULTADO FINAL', W/2, 60);
+  clearShadow();
+
+  ctx.fillStyle = gradeCol;
+  ctx.font      = 'bold 30px Bebas Neue,sans-serif';
+  shadow('#000',7);
+  ctx.fillText(grade, W/2, 97);
+  clearShadow();
+
+  ctx.fillStyle = '#f1c40f';
+  ctx.font      = 'bold 52px Bebas Neue,sans-serif';
+  shadow('#b7950b',8);
+  ctx.fillText(score + ' / ' + maxScore + ' pts', W/2, 156);
+  clearShadow();
+
+  ctx.fillStyle = '#7dcea0';
+  ctx.font      = 'bold 20px Bebas Neue,sans-serif';
+  ctx.fillText(pct + '% de precisión  ·  ' + errors + ' error' + (errors!==1?'es':''), W/2, 184);
+
+  // Resumen de canecas
+  const statKeys = [BIN_WHITE, BIN_GREEN, BIN_BLACK];
+  statKeys.forEach((key, i) => {
+    const b  = BINS[key];
+    const bx = 80 + i*218, by = 205, bw2 = 190, bh2 = 72;
+    ctx.fillStyle = `rgba(${hexToRgb(b.color)},0.1)`;
+    roundRect(bx,by,bw2,bh2,12); ctx.fill();
+    ctx.strokeStyle = b.color+'88'; ctx.lineWidth=1.5; ctx.stroke();
+    ctx.fillStyle = b.color;
+    ctx.font      = 'bold 16px Bebas Neue,sans-serif';
+    ctx.fillText('CANECA ' + b.label, bx+bw2/2, by+24);
+    ctx.fillStyle = '#ccc';
+    ctx.font      = '12px Nunito,sans-serif';
+    ctx.fillText(b.sublabel, bx+bw2/2, by+42);
+    // Ícono del bote
+    ctx.font='22px serif';
+    ctx.fillText(key===BIN_WHITE?'♻️':key===BIN_GREEN?'🌿':'🚫', bx+bw2/2, by+68);
+  });
+
+  // Datos normativos
+  ctx.fillStyle = 'rgba(39,174,96,0.08)';
+  roundRect(60,288,W-120,46,10); ctx.fill();
+  ctx.strokeStyle='rgba(39,174,96,0.25)';ctx.lineWidth=1;ctx.stroke();
+  ctx.fillStyle='#7dcea0'; ctx.font='11px Nunito,sans-serif'; ctx.textAlign='center';
+  ctx.fillText('Clasificación según Política Nacional de Residuos Sólidos (Decreto 1077/2015 · Res. 2184/2019 MADS)', W/2, 308);
+  ctx.fillText('Blanca: aprovechables · Verde: orgánicos para compostaje · Negra: no aprovechables → relleno sanitario', W/2, 326);
+
+  // Tip
+  ctx.fillStyle='rgba(255,255,255,0.04)';
+  roundRect(60,342,W-120,52,10); ctx.fill();
+  ctx.fillStyle='#f0b429';ctx.font='bold 13px Nunito,sans-serif';
+  ctx.fillText('💡 Recuerda:', W/2, 360);
+  ctx.fillStyle='#ccc'; ctx.font='12px Nunito,sans-serif';
+  ctx.fillText('Separar bien los residuos en la fuente reduce costos de disposición y aprovecha materias primas valiosas.', W/2, 378);
+  ctx.fillText('¡La separación correcta en cocina es parte de las Buenas Prácticas de Manufactura (BPM)!', W/2, 394);
+
+  // Botones
+  const bH1 = hov(200,H-72,180,44);
+  const bH2 = hov(420,H-72,180,44);
+  roundRect(200,H-72,180,44,12);
+  ctx.fillStyle = bH1?'#27ae60':'#1a7a42'; ctx.fill();
+  ctx.strokeStyle='#58d68d';ctx.lineWidth=1.5;ctx.stroke();
+  ctx.fillStyle='#fff'; ctx.font='bold 17px Bebas Neue,sans-serif';
+  ctx.fillText('▶ JUGAR DE NUEVO', 290, H-43);
+
+  roundRect(420,H-72,180,44,12);
+  ctx.fillStyle = bH2?'#2980b9':'#1a6fb5'; ctx.fill();
+  ctx.strokeStyle='#5dade2';ctx.lineWidth=1.5;ctx.stroke();
+  ctx.fillStyle='#fff';
+  ctx.fillText('☰ MENÚ', 510, H-43);
+
+  ctx.textAlign = 'left';
+}
+
+// ================================================================
+//  HELPERS
+// ================================================================
+function roundRect(x,y,w,h,r){
+  if(typeof r==='object'){
+    const {tl=0,tr=0,bl=0,br=0}=r;
+    ctx.beginPath();
+    ctx.moveTo(x+tl,y);ctx.lineTo(x+w-tr,y);ctx.quadraticCurveTo(x+w,y,x+w,y+tr);
+    ctx.lineTo(x+w,y+h-br);ctx.quadraticCurveTo(x+w,y+h,x+w-br,y+h);
+    ctx.lineTo(x+bl,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h-bl);
+    ctx.lineTo(x,y+tl);ctx.quadraticCurveTo(x,y,x+tl,y);ctx.closePath();
+  } else {
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+    ctx.lineTo(x+w,y+h-r);ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+    ctx.lineTo(x+r,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+    ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);ctx.closePath();
+  }
+}
+function shadow(col,blur){ctx.shadowColor=col;ctx.shadowBlur=blur;}
+function clearShadow(){ctx.shadowColor='transparent';ctx.shadowBlur=0;}
+function inRect(mx,my,x,y,w,h){return mx>=x&&mx<=x+w&&my>=y&&my<=y+h;}
+let mousePos={x:0,y:0};
+function hov(x,y,w,h){return inRect(mousePos.x,mousePos.y,x,y,w,h);}
+document.addEventListener('mousemove',e=>{mousePos=toCC(e.clientX,e.clientY);});
+
+// Convierte hex color a "r,g,b"
+function hexToRgb(hex) {
+  const h = hex.replace('#','');
+  const r = parseInt(h.slice(0,2),16);
+  const g = parseInt(h.slice(2,4),16);
+  const b2 = parseInt(h.slice(4,6),16);
+  return `${r},${g},${b2}`;
+}
+
+function goBack() {
+  if(window.parent && window.parent.exitGame) window.parent.exitGame();
+  else if(window.onGameEnd) window.onGameEnd();
+  else STATE='idle';
+}
+
+function fitCanvas(){
+  const scale=Math.min(window.innerWidth/W,window.innerHeight/H);
+  canvas.style.width =Math.floor(W*scale)+'px';
+  canvas.style.height=Math.floor(H*scale)+'px';
+}
+fitCanvas();
+window.addEventListener('resize',fitCanvas);
+screen.orientation&&screen.orientation.addEventListener('change',fitCanvas);
+
+// ── Idle screen inicial ──
+function drawIdleScreen() {
+  ctx.clearRect(0,0,W,H);
+  const bg=ctx.createLinearGradient(0,0,0,H); bg.addColorStop(0,'#040e07'); bg.addColorStop(1,'#091407');
+  ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#a9dfbf'; ctx.font='bold 48px Bebas Neue,sans-serif'; ctx.textAlign='center';
+  shadow('rgba(39,174,96,0.9)',16);
+  ctx.fillText('♻️  SEPARACIÓN DE RESIDUOS', W/2, H/2-10);
+  clearShadow();
+  ctx.fillStyle='#7dcea0'; ctx.font='18px Nunito,sans-serif';
+  ctx.fillText('Pulsa ESPACIO o haz clic para iniciar', W/2, H/2+26);
+  ctx.textAlign='left';
+}
+drawIdleScreen();
+
+document.addEventListener('keydown', e => {
+  if(STATE==='idle')   { launchGame(); return; }
+  if(STATE==='result') { startGame(); return; }
+  e.preventDefault();
+});
+canvas.addEventListener('click', e => {
+  if(STATE==='idle') launchGame();
+});
+</script>
+</body>
+</html>

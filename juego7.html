@@ -1,0 +1,1001 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Control de Agua – pH y Cloro – Parrillera Burger</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Nunito:wght@400;700;800;900&display=swap" rel="stylesheet"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;background:#0d0d0d;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden}
+#wrap{width:100%;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;line-height:0;flex-shrink:0}
+canvas{display:block;border:3px solid #1abc9c;box-shadow:0 0 40px rgba(26,188,156,0.6);touch-action:none}
+#portrait-hint{display:none;text-align:center;padding:14px 20px;color:rgba(255,255,255,0.4);font-family:'Nunito',sans-serif;font-size:12px;line-height:1.8;max-width:340px}
+#portrait-hint b{color:rgba(255,255,255,0.7)}
+@media(orientation:portrait){
+  html,body{justify-content:flex-start;padding-top:12px}
+  #portrait-hint{display:block}
+}
+#game-intro{position:fixed;inset:0;z-index:999;background:rgba(4,10,20,0.97);font-family:'Nunito',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:12px;padding:16px 20px;overflow-y:auto}
+#game-intro.hide{display:none}
+.po-icon{font-size:64px;line-height:1}
+.po-title{font-family:'Bebas Neue',sans-serif;font-size:clamp(22px,7vw,44px);letter-spacing:clamp(0px,0.8vw,4px);text-align:center;color:#fff}
+.po-sub{font-family:'Bebas Neue',sans-serif;font-size:19px;color:#1abc9c;text-align:center}
+.po-rules{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px 22px;max-width:520px;width:100%}
+.po-rules li{font-size:13px;color:#bdc3c7;margin-bottom:6px;line-height:1.5;list-style:none;padding-left:4px}
+.po-spec{display:flex;gap:16px;max-width:520px;width:100%}
+.po-spec-box{flex:1;background:rgba(26,188,156,0.08);border:1px solid rgba(26,188,156,0.3);border-radius:10px;padding:10px 14px;text-align:center}
+.po-spec-box h3{font-family:'Bebas Neue',sans-serif;font-size:18px;margin-bottom:4px}
+.po-spec-box p{font-size:12px;color:#aaa;line-height:1.5}
+.po-btn{padding:11px 38px;border-radius:12px;border:none;cursor:pointer;font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;color:#fff;transition:opacity 0.2s,transform 0.1s;margin-top:4px}
+.po-btn:hover{opacity:0.85;transform:scale(1.04)}
+@media(max-height:500px){
+  .po-icon{font-size:36px}.po-title{font-size:18px}.po-rules li{font-size:11px;margin-bottom:2px}.po-btn{padding:7px 24px;font-size:17px}.po-spec{display:none}
+}
+</style>
+</head>
+<body>
+
+<!-- ══ INTRO OVERLAY ══ -->
+<div id="game-intro">
+  <div class="po-icon">💧</div>
+  <div class="po-title">Control de Calidad del Agua</div>
+  <div class="po-sub">🧪 pH y Cloro Residual — Parrillera Burger</div>
+  <div class="po-spec">
+    <div class="po-spec-box">
+      <h3 style="color:#3498db">pH del Agua</h3>
+      <p>Rango seguro<br><b style="color:#fff;font-size:16px">6.5 – 9.0</b><br>Resolución de Minsalud</p>
+    </div>
+    <div class="po-spec-box">
+      <h3 style="color:#1abc9c">Cloro Residual</h3>
+      <p>Rango seguro<br><b style="color:#fff;font-size:16px">0.3 – 2.0 mg/L</b><br>Norma NTC / OMS</p>
+    </div>
+  </div>
+  <ul class="po-rules">
+    <li>🎯 Cada ronda genera un objetivo aleatorio de <b>pH</b> y otro de <b>Cloro</b></li>
+    <li>📊 Dos medidores fluctúan simultáneamente — ¡debes detener los dos!</li>
+    <li>👆 <b>Clic izquierdo / tecla 1</b> para fijar el medidor de pH</li>
+    <li>👆 <b>Clic derecho / tecla 2</b> para fijar el medidor de Cloro</li>
+    <li>⏱️ Tienes <b>8 rondas</b> — ambos medidores deben quedar en zona segura</li>
+    <li>🏅 Exacto (±tol. mínima) = 100 pts cada uno · Cercano = 50 pts · Fuera = 0 pts</li>
+  </ul>
+  <button class="po-btn" style="background:#1abc9c" onclick="launchGame()">▶  INICIAR</button>
+</div>
+
+<div id="portrait-hint"><b>Gira el dispositivo</b> para una mejor experiencia<br>📱 → 🖥️</div>
+<div id="wrap"><canvas id="c"></canvas></div>
+
+<script>
+// ================================================================
+//  CONTROL DE CALIDAD DEL AGUA – pH y Cloro – Minijuego 7
+//  Dos medidores simultáneos: detén cada uno en su valor objetivo
+// ================================================================
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+const W = 800, H = 500;
+const DPR = window.devicePixelRatio || 1;
+canvas.width  = W * DPR;
+canvas.height = H * DPR;
+ctx.scale(DPR, DPR);
+
+function toCC(cx, cy) {
+  const r = canvas.getBoundingClientRect();
+  return { x:(cx-r.left)*(W/r.width), y:(cy-r.top)*(H/r.height) };
+}
+
+// ================================================================
+//  PARÁMETROS DE LOS DOS MEDIDORES
+// ================================================================
+const PARAMS = {
+  ph: {
+    label:      'pH',
+    unit:       '',
+    icon:       '🧪',
+    color:      '#3498db',
+    colorDark:  '#1a6fb5',
+    rangeMin:   4,
+    rangeMax:   12,
+    safeMin:    6.5,
+    safeMax:    9.0,
+    tolGreen:   0.25,
+    tolYellow:  0.6,
+    speedBase:  1.8,
+    speedAccel: 0.15,
+    decimals:   1,
+    fact:       'pH ácido (<6.5) corroe equipos y puede inactivar el cloro.\npH alcalino (>9) reduce la eficiencia desinfectante.',
+  },
+  cl: {
+    label:      'Cloro Residual',
+    unit:       ' mg/L',
+    icon:       '⚗️',
+    color:      '#1abc9c',
+    colorDark:  '#0e8c70',
+    rangeMin:   0,
+    rangeMax:   4,
+    safeMin:    0.3,
+    safeMax:    2.0,
+    tolGreen:   0.1,
+    tolYellow:  0.25,
+    speedBase:  1.4,
+    speedAccel: 0.12,
+    decimals:   2,
+    fact:       'Cloro < 0.3 mg/L: riesgo de contaminación microbiana.\nCloro > 2 mg/L: irritante y produce sabores indeseados.',
+  }
+};
+
+const TOTAL_ROUNDS = 8;
+
+// ================================================================
+//  ESTADO DEL JUEGO
+// ================================================================
+let STATE       = 'menu';   // menu | playing | result
+let round       = 0;
+let score       = 0;
+let roundResults= [];
+let particles   = [];
+let lastTime    = 0;
+
+// Estado de cada medidor
+function makeMeter(key) {
+  const p = PARAMS[key];
+  return {
+    key,
+    value:      p.rangeMin + Math.random() * (p.rangeMax - p.rangeMin),
+    dir:        Math.random() < 0.5 ? 1 : -1,
+    speed:      p.speedBase,
+    target:     randomTarget(key),
+    frozen:     false,
+    frozenVal:  null,
+    frozenAnim: 0,
+    pts:        null,
+    msg:        '',
+    msgColor:   '#fff',
+  };
+}
+
+let meters = { ph: null, cl: null };
+
+function randomTarget(key) {
+  const p = PARAMS[key];
+  const v = p.safeMin + Math.random() * (p.safeMax - p.safeMin);
+  const f = Math.pow(10, p.decimals);
+  return Math.round(v * f) / f;
+}
+
+// Cuándo se considera una ronda completa
+function bothFrozen() { return meters.ph.frozen && meters.cl.frozen; }
+
+let waitTimer    = 0;
+const WAIT_AFTER = 2.0;  // segundos antes de pasar de ronda
+
+// ================================================================
+//  GEOMETRÍA DE LAS BARRAS (dos barras verticales)
+// ================================================================
+const BAR = {
+  ph: { cx: 190, top: 72, bot: 418, w: 34 },
+  cl: { cx: 570, top: 72, bot: 418, w: 34 },
+};
+
+function tToY(val, key) {
+  const p = PARAMS[key];
+  const b = BAR[key];
+  // max arriba, min abajo
+  return b.bot - ((val - p.rangeMin) / (p.rangeMax - p.rangeMin)) * (b.bot - b.top);
+}
+
+// ================================================================
+//  INPUT
+// ================================================================
+canvas.addEventListener('contextmenu', e => { e.preventDefault(); });
+
+canvas.addEventListener('mousedown', e => {
+  e.preventDefault();
+  const {x, y} = toCC(e.clientX, e.clientY);
+  if(STATE === 'playing') {
+    if(e.button === 0) tryFreeze('ph', x, y);
+    if(e.button === 2) tryFreeze('cl', x, y);
+  }
+  if(STATE === 'result') handleResultClick(x, y);
+});
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if(STATE !== 'playing') return;
+  const touches = e.changedTouches;
+  // Primer toque: izquierda=pH, derecha=cloro
+  for(let i = 0; i < touches.length; i++) {
+    const {x} = toCC(touches[i].clientX, touches[i].clientY);
+    if(x < W / 2) tryFreeze('ph', x, 0);
+    else           tryFreeze('cl', x, 0);
+  }
+}, {passive:false});
+
+document.addEventListener('keydown', e => {
+  if(STATE === 'menu')   { launchGame(); return; }
+  if(STATE === 'result') { launchGame(); return; }
+  if(STATE === 'playing') {
+    if(e.key === '1' || e.key === 'q' || e.key === 'Q') tryFreeze('ph');
+    if(e.key === '2' || e.key === 'e' || e.key === 'E') tryFreeze('cl');
+    if(e.key === ' ')  { tryFreeze('ph'); tryFreeze('cl'); }
+  }
+  e.preventDefault();
+});
+
+function tryFreeze(key) {
+  const m = meters[key];
+  if(!m || m.frozen) return;
+  const p  = PARAMS[key];
+  m.frozen    = true;
+  m.frozenVal = m.value;
+  const diff  = Math.abs(m.frozenVal - m.target);
+  if(diff <= p.tolGreen) {
+    m.pts = 100; m.msg = '🎯 PERFECTO'; m.msgColor = '#2ecc71';
+    spawnParticles(key, m.frozenVal, '#2ecc71', 28);
+  } else if(diff <= p.tolYellow) {
+    m.pts = 50;  m.msg = '👍 CERCANO';  m.msgColor = '#f1c40f';
+    spawnParticles(key, m.frozenVal, '#f1c40f', 14);
+  } else {
+    m.pts = 0;   m.msg = '❌ FUERA';    m.msgColor = '#e74c3c';
+    spawnParticles(key, m.frozenVal, '#e74c3c', 8);
+  }
+  score += m.pts;
+}
+
+// ================================================================
+//  PARTÍCULAS
+// ================================================================
+function spawnParticles(key, val, color, count) {
+  const b  = BAR[key];
+  const ny = tToY(val, key);
+  const nx = b.cx + b.w + 12;
+  for(let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const spd   = 35 + Math.random() * 90;
+    particles.push({ x:nx, y:ny, vx:Math.cos(angle)*spd, vy:Math.sin(angle)*spd-25,
+      life:1, decay:0.55+Math.random()*0.7, r:3+Math.random()*5, color });
+  }
+}
+
+function updateParticles(dt) {
+  for(let i = particles.length-1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx*dt; p.y += p.vy*dt; p.vy += 110*dt;
+    p.life -= p.decay*dt;
+    if(p.life <= 0) particles.splice(i, 1);
+  }
+}
+
+// ================================================================
+//  LÓGICA
+// ================================================================
+function launchGame() {
+  document.getElementById('game-intro').classList.add('hide');
+  startGame();
+}
+
+function startGame() {
+  round        = 0;
+  score        = 0;
+  roundResults = [];
+  particles    = [];
+  beginRound();
+  STATE = 'playing';
+  requestAnimationFrame(loop);
+}
+
+function beginRound() {
+  ['ph','cl'].forEach(key => {
+    const p  = PARAMS[key];
+    const m  = makeMeter(key);
+    m.speed  = p.speedBase + round * p.speedAccel;
+    meters[key] = m;
+  });
+  waitTimer = 0;
+}
+
+function update(dt) {
+  updateParticles(dt);
+  if(STATE !== 'playing') return;
+
+  ['ph','cl'].forEach(key => {
+    const m = meters[key];
+    const p = PARAMS[key];
+    if(m.frozen) {
+      m.frozenAnim = Math.min(m.frozenAnim + dt*3, 1);
+      return;
+    }
+    // Movimiento
+    m.value += m.dir * m.speed * dt;
+    if(m.value >= p.rangeMax) { m.value = p.rangeMax; m.dir = -1; m.speed = p.speedBase + round*p.speedAccel + Math.random()*0.6; }
+    else if(m.value <= p.rangeMin) { m.value = p.rangeMin; m.dir = 1; m.speed = p.speedBase + round*p.speedAccel + Math.random()*0.6; }
+    // Fluctuación
+    m.speed += (Math.random()-0.5) * 0.35 * dt * 60;
+    m.speed  = Math.max(0.5, Math.min(4.5, m.speed));
+  });
+
+  if(bothFrozen()) {
+    waitTimer += dt;
+    if(waitTimer >= WAIT_AFTER) endRound();
+  }
+}
+
+function endRound() {
+  roundResults.push({
+    ph:  { target: meters.ph.target,  got: meters.ph.frozenVal,  pts: meters.ph.pts  },
+    cl:  { target: meters.cl.target,  got: meters.cl.frozenVal,  pts: meters.cl.pts  },
+  });
+  round++;
+  if(round >= TOTAL_ROUNDS) {
+    STATE = 'result';
+  } else {
+    beginRound();
+  }
+}
+
+// ================================================================
+//  LOOP
+// ================================================================
+function loop(ts) {
+  const dt = Math.min((ts - lastTime) / 1000, 0.05);
+  lastTime = ts;
+  update(dt);
+  draw(ts);
+  requestAnimationFrame(loop);
+}
+
+// ================================================================
+//  DIBUJO
+// ================================================================
+function draw(ts) {
+  ctx.clearRect(0, 0, W, H);
+  drawBG(ts);
+  drawWaterDecor(ts);
+  drawCenterPanel(ts);
+  ['ph','cl'].forEach(key => {
+    drawBar(key, ts);
+    drawNeedle(key, ts);
+    drawBarLabels(key, ts);
+  });
+  drawParticles();
+  drawHUD(ts);
+  if(STATE === 'result') drawResult(ts);
+  if(STATE === 'menu')   drawMenuScreen(ts);
+}
+
+// ── Fondo ──
+function drawBG(ts) {
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#030d14');
+  bg.addColorStop(1, '#071822');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(26,188,156,0.06)';
+  ctx.lineWidth   = 1;
+  for(let x=0;x<W;x+=50){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
+  for(let y=0;y<H;y+=50){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+}
+
+// Ondas de agua decorativas
+function drawWaterDecor(ts) {
+  const t = ts / 1000;
+  ctx.save();
+  ctx.globalAlpha = 0.06;
+  ctx.strokeStyle = '#1abc9c';
+  ctx.lineWidth   = 2;
+  for(let w=0; w<3; w++) {
+    ctx.beginPath();
+    for(let x=0; x<W; x+=4) {
+      const y = H*0.5 + Math.sin((x/80) + t*(0.6+w*0.2) + w*1.2)*14 + w*20;
+      x===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+  // Burbujas
+  drawBubbles(ts);
+}
+
+const BUBBLES = Array.from({length:12}, () => ({
+  x: Math.random()*W, y: H + Math.random()*H,
+  r: 3+Math.random()*7, speed: 18+Math.random()*30, phase: Math.random()*Math.PI*2
+}));
+
+function drawBubbles(ts) {
+  const t = ts/1000;
+  ctx.save();
+  ctx.globalAlpha = 0.12;
+  BUBBLES.forEach(b => {
+    const y = ((b.y - b.speed*t) % (H+40) + H+40) % (H+40) - 20;
+    const x = b.x + Math.sin(t*0.5 + b.phase)*12;
+    ctx.strokeStyle = '#1abc9c';
+    ctx.lineWidth   = 1.5;
+    ctx.beginPath(); ctx.arc(x, y, b.r, 0, Math.PI*2); ctx.stroke();
+  });
+  ctx.restore();
+}
+
+// ── Panel central (info de la ronda) ──
+function drawCenterPanel(ts) {
+  const px = 310, py = 62, pw = 180, ph2 = 370;
+
+  // Fondo panel
+  ctx.fillStyle = 'rgba(6,18,30,0.88)';
+  roundRect(px, py, pw, ph2, 14);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(26,188,156,0.35)';
+  ctx.lineWidth   = 1.5;
+  ctx.stroke();
+
+  // Cabecera
+  roundRect(px, py, pw, 38, {tl:14,tr:14,bl:0,br:0});
+  ctx.fillStyle = 'rgba(26,188,156,0.5)';
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.font      = 'bold 14px Bebas Neue,sans-serif';
+  ctx.textAlign = 'center';
+  shadow('#000',3);
+  ctx.fillText('💧 AGUA DE PROCESO', px+pw/2, py+24);
+  clearShadow();
+
+  // Icono agua
+  ctx.font = '34px serif';
+  ctx.fillText('🚰', px+pw/2, py+82);
+
+  // OBJETIVOS del turno
+  const phM = meters.ph, clM = meters.cl;
+
+  ctx.fillStyle = '#aed6f1';
+  ctx.font      = 'bold 12px Nunito,sans-serif';
+  ctx.fillText('OBJETIVOS DE LA RONDA', px+pw/2, py+106);
+
+  // pH objetivo
+  ctx.fillStyle = 'rgba(52,152,219,0.2)';
+  roundRect(px+10, py+112, pw-20, 50, 8); ctx.fill();
+  ctx.strokeStyle = 'rgba(52,152,219,0.5)'; ctx.lineWidth=1; ctx.stroke();
+  ctx.fillStyle = '#3498db';
+  ctx.font      = 'bold 13px Bebas Neue,sans-serif';
+  ctx.fillText('🧪 pH', px+pw/2, py+128);
+  ctx.fillStyle = '#fff';
+  ctx.font      = 'bold 26px Bebas Neue,sans-serif';
+  shadow('#1a6fb5',6);
+  ctx.fillText(phM ? phM.target.toFixed(1) : '—', px+pw/2, py+152);
+  clearShadow();
+
+  // Cloro objetivo
+  ctx.fillStyle = 'rgba(26,188,156,0.2)';
+  roundRect(px+10, py+170, pw-20, 50, 8); ctx.fill();
+  ctx.strokeStyle = 'rgba(26,188,156,0.5)'; ctx.lineWidth=1; ctx.stroke();
+  ctx.fillStyle = '#1abc9c';
+  ctx.font      = 'bold 13px Bebas Neue,sans-serif';
+  ctx.fillText('⚗️ Cloro mg/L', px+pw/2, py+186);
+  ctx.fillStyle = '#fff';
+  ctx.font      = 'bold 26px Bebas Neue,sans-serif';
+  shadow('#0e8c70',6);
+  ctx.fillText(clM ? clM.target.toFixed(2) : '—', px+pw/2, py+210);
+  clearShadow();
+
+  // Controles
+  ctx.fillStyle = '#7fb3d3';
+  ctx.font      = 'bold 11px Nunito,sans-serif';
+  ctx.fillText('CONTROLES', px+pw/2, py+242);
+
+  drawControlBadge(px+12, py+250, pw-24, 26, '🧪 pH', '1 / Clic izq.', '#3498db');
+  drawControlBadge(px+12, py+282, pw-24, 26, '⚗️ Cloro', '2 / Clic der.', '#1abc9c');
+
+  // Estado actual de ambos
+  ctx.fillStyle = '#7fb3d3';
+  ctx.font      = 'bold 11px Nunito,sans-serif';
+  ctx.fillText('LECTURA ACTUAL', px+pw/2, py+326);
+
+  const phVal  = phM ? (phM.frozen ? phM.frozenVal : phM.value) : 0;
+  const clVal  = clM ? (clM.frozen ? clM.frozenVal : clM.value) : 0;
+  const phSafe = phVal >= PARAMS.ph.safeMin && phVal <= PARAMS.ph.safeMax;
+  const clSafe = clVal >= PARAMS.cl.safeMin && clVal <= PARAMS.cl.safeMax;
+
+  ctx.fillStyle = phSafe ? '#2ecc71' : '#e74c3c';
+  ctx.font      = 'bold 16px Bebas Neue,sans-serif';
+  const phLock  = phM && phM.frozen ? ' 🔒' : '';
+  ctx.fillText('pH ' + phVal.toFixed(1) + phLock, px+pw/2, py+344);
+
+  ctx.fillStyle = clSafe ? '#2ecc71' : '#e74c3c';
+  const clLock  = clM && clM.frozen ? ' 🔒' : '';
+  ctx.fillText(clVal.toFixed(2) + ' mg/L' + clLock, px+pw/2, py+362);
+
+  ctx.textAlign = 'left';
+}
+
+function drawControlBadge(x, y, w, h, left, right, color) {
+  ctx.fillStyle = 'rgba(255,255,255,0.05)';
+  roundRect(x, y, w, h, 6); ctx.fill();
+  ctx.strokeStyle = color+'66'; ctx.lineWidth=1; ctx.stroke();
+  ctx.fillStyle = color;
+  ctx.font      = 'bold 11px Nunito,sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(left, x+8, y+h/2+4);
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'right';
+  ctx.fillText(right, x+w-8, y+h/2+4);
+}
+
+// ── Barra vertical ──
+function drawBar(key, ts) {
+  const p  = PARAMS[key];
+  const b  = BAR[key];
+  const m  = meters[key];
+  if(!m) return;
+
+  const gx  = b.cx - b.w/2;
+  const gt  = b.top;
+  const gb  = b.bot;
+  const gw  = b.w;
+  const gh  = gb - gt;
+
+  // Sombra
+  ctx.shadowColor = p.color+'55';
+  ctx.shadowBlur  = 14;
+
+  // Contenedor exterior
+  roundRect(gx-4, gt-4, gw+8, gh+8, 8);
+  ctx.fillStyle = 'rgba(10,22,36,0.85)'; ctx.fill();
+  ctx.strokeStyle = p.color+'44'; ctx.lineWidth=2; ctx.stroke();
+
+  ctx.shadowBlur = 0;
+
+  // Zonas de color
+  // Zona baja peligrosa (ej pH<6.5)
+  const ySafeTop = tToY(p.safeMax, key);
+  const ySafeBot = tToY(p.safeMin, key);
+  const yTop     = tToY(p.rangeMax, key);
+  const yBot     = tToY(p.rangeMin, key);
+
+  // Zona peligro alta
+  ctx.fillStyle = 'rgba(231,76,60,0.14)';
+  ctx.fillRect(gx, yTop, gw, ySafeTop - yTop);
+  // Zona segura
+  ctx.fillStyle = 'rgba(46,204,113,0.20)';
+  ctx.fillRect(gx, ySafeTop, gw, ySafeBot - ySafeTop);
+  ctx.strokeStyle = 'rgba(46,204,113,0.55)'; ctx.lineWidth=1.5;
+  ctx.strokeRect(gx, ySafeTop, gw, ySafeBot - ySafeTop);
+  // Zona peligro baja
+  ctx.fillStyle = 'rgba(231,76,60,0.14)';
+  ctx.fillRect(gx, ySafeBot, gw, yBot - ySafeBot);
+
+  // Relleno de la barra proporcional al valor actual
+  const valDraw = m.frozen ? m.frozenVal : m.value;
+  const fillFrac = (valDraw - p.rangeMin) / (p.rangeMax - p.rangeMin);
+  const fillH    = fillFrac * gh;
+  const fillY    = gb - fillH;
+  const fg = ctx.createLinearGradient(0, fillY, 0, gb);
+  if(valDraw >= p.safeMin && valDraw <= p.safeMax) {
+    fg.addColorStop(0, p.color);
+    fg.addColorStop(1, p.colorDark);
+  } else {
+    fg.addColorStop(0, '#e74c3c');
+    fg.addColorStop(1, '#922b21');
+  }
+  ctx.fillStyle = fg;
+  roundRect(gx+2, fillY, gw-4, fillH+6, 5);
+  ctx.fill();
+
+  // Marca objetivo parpadeante
+  const tyObj = tToY(m.target, key);
+  const pulse  = 0.55 + 0.45*Math.abs(Math.sin(ts/280 + (key==='cl'?Math.PI:0)));
+  ctx.save();
+  ctx.globalAlpha = pulse;
+  ctx.strokeStyle = '#e74c3c';
+  ctx.lineWidth   = 2;
+  ctx.setLineDash([5,4]);
+  ctx.beginPath();
+  ctx.moveTo(gx - 22, tyObj);
+  ctx.lineTo(gx + gw + 22, tyObj);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  // Etiqueta objetivo
+  ctx.save();
+  ctx.globalAlpha = pulse;
+  ctx.fillStyle   = '#e74c3c';
+  ctx.font        = 'bold 12px Bebas Neue,sans-serif';
+  ctx.textAlign   = key === 'ph' ? 'right' : 'left';
+  const etqX = key === 'ph' ? gx - 26 : gx + gw + 26;
+  ctx.fillText('▶ ' + m.target.toFixed(p.decimals) + p.unit, etqX, tyObj + 4);
+  ctx.restore();
+
+  // Brillo lateral
+  ctx.fillStyle = 'rgba(255,255,255,0.06)';
+  roundRect(gx+2, gt, 5, gh, 3); ctx.fill();
+}
+
+// ── Etiquetas de escala ──
+function drawBarLabels(key, ts) {
+  const p   = PARAMS[key];
+  const b   = BAR[key];
+  const gx  = b.cx - b.w/2;
+  const gw  = b.w;
+  const step = key === 'ph' ? 1 : 0.5;
+
+  ctx.strokeStyle = 'rgba(150,200,255,0.28)';
+  ctx.lineWidth   = 1;
+  ctx.fillStyle   = '#7fb3d3';
+  ctx.font        = 'bold 10px Nunito,sans-serif';
+  ctx.textAlign   = key === 'ph' ? 'right' : 'left';
+
+  for(let v = p.rangeMin; v <= p.rangeMax + 0.001; v += step) {
+    const my = tToY(v, key);
+    ctx.beginPath();
+    if(key === 'ph') {
+      ctx.moveTo(gx - 2, my); ctx.lineTo(gx - 8, my);
+    } else {
+      ctx.moveTo(gx + gw + 2, my); ctx.lineTo(gx + gw + 8, my);
+    }
+    ctx.stroke();
+    const lbl = v % 1 === 0 ? v.toFixed(0) : v.toFixed(1);
+    if(key === 'ph') ctx.fillText(lbl, gx-10, my+4);
+    else             ctx.fillText(lbl, gx+gw+10, my+4);
+  }
+
+  // Etiqueta ZONA SEGURA
+  const ySafeTop = tToY(p.safeMax, key);
+  const ySafeBot = tToY(p.safeMin, key);
+  ctx.save();
+  ctx.translate(b.cx, (ySafeTop+ySafeBot)/2);
+  ctx.rotate(-Math.PI/2);
+  ctx.fillStyle = 'rgba(46,204,113,0.75)';
+  ctx.font      = 'bold 10px Nunito,sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('ZONA SEGURA', 0, 3);
+  ctx.restore();
+
+  // Título de la barra
+  ctx.fillStyle   = p.color;
+  ctx.font        = 'bold 16px Bebas Neue,sans-serif';
+  ctx.textAlign   = 'center';
+  shadow('#000', 4);
+  ctx.fillText(p.icon + ' ' + p.label, b.cx, b.top - 10);
+  clearShadow();
+
+  // Unidad
+  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  ctx.font      = '10px Nunito,sans-serif';
+  ctx.fillText(p.unit ? p.unit.trim() : key==='ph'?'unidades':'', b.cx, b.bot + 16);
+
+  ctx.textAlign = 'left';
+}
+
+// ── Aguja de medición ──
+function drawNeedle(key, ts) {
+  const p  = PARAMS[key];
+  const b  = BAR[key];
+  const m  = meters[key];
+  if(!m) return;
+
+  const val  = m.frozen ? m.frozenVal : m.value;
+  const ny   = tToY(val, key);
+  const gx   = b.cx - b.w/2;
+  const gw   = b.w;
+  const safe = val >= p.safeMin && val <= p.safeMax;
+  const col  = m.frozen ? m.msgColor : (safe ? p.color : '#e74c3c');
+
+  // Dirección de la aguja según columna
+  const side = key === 'ph' ? -1 : 1;  // -1=izquierda, 1=derecha
+  const nx   = key === 'ph' ? gx : gx + gw;
+
+  ctx.shadowColor = col;
+  ctx.shadowBlur  = m.frozen ? 18 : 8;
+
+  // Triángulo flecha
+  ctx.fillStyle = col;
+  ctx.beginPath();
+  ctx.moveTo(nx + side*0,    ny);
+  ctx.lineTo(nx + side*(-20), ny - 9);
+  ctx.lineTo(nx + side*(-20), ny + 9);
+  ctx.closePath();
+  ctx.fill();
+
+  // Línea desde barra
+  ctx.strokeStyle = col;
+  ctx.lineWidth   = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(nx, ny);
+  ctx.lineTo(nx + side*(-20), ny);
+  ctx.stroke();
+
+  // Valor numérico
+  ctx.fillStyle = '#fff';
+  ctx.font      = 'bold 13px Bebas Neue,sans-serif';
+  ctx.textAlign = key === 'ph' ? 'right' : 'left';
+  ctx.shadowBlur = 3;
+  ctx.fillText(val.toFixed(p.decimals) + p.unit, nx + side*(-26), ny + 5);
+
+  ctx.shadowBlur  = 0;
+  ctx.shadowColor = 'transparent';
+
+  // Candado si congelado
+  if(m.frozen && m.frozenAnim > 0.2) {
+    ctx.font      = '15px serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('🔒', nx + side*(-10), ny - 14);
+  }
+
+  // Mensaje de feedback
+  if(m.frozen && m.msg) {
+    ctx.fillStyle = m.msgColor;
+    ctx.font      = 'bold 13px Bebas Neue,sans-serif';
+    ctx.textAlign = key === 'ph' ? 'right' : 'left';
+    shadow('#000',5);
+    ctx.fillText(m.msg, nx + side*(-26), ny - 22);
+    clearShadow();
+  }
+
+  ctx.textAlign = 'left';
+}
+
+// ── Partículas ──
+function drawParticles() {
+  particles.forEach(p => {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, p.life);
+    ctx.fillStyle   = p.color;
+    ctx.shadowColor = p.color; ctx.shadowBlur = 5;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r*p.life, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  });
+}
+
+// ── HUD ──
+function drawHUD(ts) {
+  // Barra superior
+  ctx.fillStyle = 'rgba(3,10,20,0.94)';
+  ctx.fillRect(0, 0, W, 54);
+  ctx.strokeStyle = 'rgba(26,188,156,0.4)';
+  ctx.lineWidth   = 1;
+  ctx.beginPath(); ctx.moveTo(0,54); ctx.lineTo(W,54); ctx.stroke();
+
+  ctx.fillStyle = '#aed6f1';
+  ctx.font      = 'bold 21px Bebas Neue,sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('💧  CONTROL DE CALIDAD DEL AGUA  ·  PARRILLERA BURGER', W/2, 33);
+
+  ctx.fillStyle = '#f1c40f';
+  ctx.font      = 'bold 19px Bebas Neue,sans-serif';
+  ctx.textAlign = 'left';
+  shadow('#000',3);
+  ctx.fillText('Pts: ' + score, 16, 35);
+  clearShadow();
+
+  ctx.fillStyle = '#1abc9c';
+  ctx.textAlign = 'right';
+  ctx.fillText('Ronda ' + Math.min(round+1, TOTAL_ROUNDS) + ' / ' + TOTAL_ROUNDS, W-16, 35);
+
+  // Barra inferior
+  ctx.fillStyle = 'rgba(3,10,20,0.94)';
+  ctx.fillRect(0, H-48, W, 48);
+  ctx.strokeStyle = 'rgba(26,188,156,0.4)';
+  ctx.lineWidth   = 1;
+  ctx.beginPath(); ctx.moveTo(0,H-48); ctx.lineTo(W,H-48); ctx.stroke();
+
+  // Puntos de ronda
+  const dotSpacing = 36;
+  const dotsStartX = W/2 - (TOTAL_ROUNDS/2)*dotSpacing + dotSpacing/2;
+  for(let i=0; i<TOTAL_ROUNDS; i++) {
+    const dx = dotsStartX + i*dotSpacing;
+    const dy = H - 30;
+    if(i < roundResults.length) {
+      const rr = roundResults[i];
+      const totalPts = rr.ph.pts + rr.cl.pts;
+      ctx.fillStyle = totalPts === 200 ? '#2ecc71' : totalPts >= 100 ? '#f1c40f' : '#e74c3c';
+    } else if(i === round && STATE === 'playing') {
+      ctx.fillStyle = '#1abc9c';
+    } else {
+      ctx.fillStyle = 'rgba(255,255,255,0.13)';
+    }
+    ctx.beginPath(); ctx.arc(dx, dy, 7, 0, Math.PI*2); ctx.fill();
+    // Dos puntitos dentro para indicar los dos parámetros
+    if(i < roundResults.length) {
+      const rr = roundResults[i];
+      ctx.fillStyle = rr.ph.pts > 0 ? '#3498db' : '#922b21';
+      ctx.beginPath(); ctx.arc(dx-3, dy, 3, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = rr.cl.pts > 0 ? '#1abc9c' : '#922b21';
+      ctx.beginPath(); ctx.arc(dx+3, dy, 3, 0, Math.PI*2); ctx.fill();
+    }
+  }
+
+  // Instrucción
+  if(STATE === 'playing') {
+    const phM = meters.ph, clM = meters.cl;
+    const phLocked = phM && phM.frozen;
+    const clLocked = clM && clM.frozen;
+    const t = ts/1000;
+    const pulse = 0.65 + 0.35*Math.abs(Math.sin(t*1.8));
+    ctx.save();
+    ctx.globalAlpha = pulse;
+    ctx.fillStyle   = '#f1c40f';
+    ctx.font        = 'bold 14px Bebas Neue,sans-serif';
+    ctx.textAlign   = 'center';
+    if(!phLocked && !clLocked) {
+      ctx.fillText('👆 [ 1 / Clic izq. ] → Fijar pH     |     [ 2 / Clic der. ] → Fijar Cloro', W/2, H-14);
+    } else if(!phLocked) {
+      ctx.fillText('👆 [ 1 / Clic izq. ] → Fijar pH', W/2, H-14);
+    } else if(!clLocked) {
+      ctx.fillText('👆 [ 2 / Clic der. ] → Fijar Cloro', W/2, H-14);
+    } else {
+      ctx.fillStyle = '#2ecc71';
+      ctx.fillText('✅ Ambos medidores fijados — Calculando resultado...', W/2, H-14);
+    }
+    ctx.restore();
+  }
+
+  ctx.textAlign = 'left';
+}
+
+// ── Pantalla de resultado final ──
+function drawResult(ts) {
+  ctx.fillStyle = 'rgba(3,10,20,0.95)';
+  ctx.fillRect(0, 0, W, H);
+
+  const total = TOTAL_ROUNDS * 200;
+  const pct   = Math.round((score/total)*100);
+  let grade, gradeCol;
+  if(pct >= 90)      { grade = '⭐ EXPERTO EN AGUA'; gradeCol = '#2ecc71'; }
+  else if(pct >= 70) { grade = '🥈 BUEN CONTROL';   gradeCol = '#f1c40f'; }
+  else if(pct >= 50) { grade = '🥉 EN PRÁCTICA';    gradeCol = '#e67e22'; }
+  else               { grade = '❌ NECESITA MEJORAR'; gradeCol='#e74c3c'; }
+
+  ctx.fillStyle = '#aed6f1';
+  ctx.font      = 'bold 44px Bebas Neue,sans-serif';
+  ctx.textAlign = 'center';
+  shadow('rgba(26,188,156,0.8)', 14);
+  ctx.fillText('💧  RESULTADO FINAL', W/2, 60);
+  clearShadow();
+
+  ctx.fillStyle = gradeCol;
+  ctx.font      = 'bold 30px Bebas Neue,sans-serif';
+  shadow('#000', 7);
+  ctx.fillText(grade, W/2, 94);
+  clearShadow();
+
+  ctx.fillStyle = '#f1c40f';
+  ctx.font      = 'bold 52px Bebas Neue,sans-serif';
+  shadow('#b7950b', 8);
+  ctx.fillText(score + ' / ' + total + ' pts', W/2, 148);
+  clearShadow();
+
+  ctx.fillStyle = '#7fb3d3';
+  ctx.font      = 'bold 20px Bebas Neue,sans-serif';
+  ctx.fillText(pct + '% de precisión', W/2, 174);
+
+  // Tabla resultados
+  const tX = 28, tY = 186, tW = W-56, rH = 26;
+  const cols = 7;
+  const cW   = tW/cols;
+
+  ctx.fillStyle = 'rgba(26,188,156,0.4)';
+  ctx.fillRect(tX, tY, tW, rH);
+  ctx.fillStyle = '#fff';
+  ctx.font      = 'bold 12px Bebas Neue,sans-serif';
+  const heads   = ['#', 'OBJ pH', 'GOT pH', 'PTS pH', 'OBJ Cl', 'GOT Cl', 'PTS Cl'];
+  heads.forEach((h,i) => {
+    ctx.fillText(h, tX + cW*i + cW/2, tY+18);
+  });
+
+  roundResults.forEach((r, i) => {
+    const ry = tY + rH*(i+1);
+    ctx.fillStyle = i%2===0?'rgba(255,255,255,0.04)':'rgba(255,255,255,0.08)';
+    ctx.fillRect(tX, ry, tW, rH);
+    const cells = [
+      i+1,
+      r.ph.target.toFixed(1),
+      r.ph.got.toFixed(1),
+      r.ph.pts,
+      r.cl.target.toFixed(2),
+      r.cl.got.toFixed(2),
+      r.cl.pts,
+    ];
+    cells.forEach((c, j) => {
+      let col = '#ccc';
+      if(j===3) col = r.ph.pts===100?'#2ecc71':r.ph.pts===50?'#f1c40f':'#e74c3c';
+      if(j===6) col = r.cl.pts===100?'#2ecc71':r.cl.pts===50?'#f1c40f':'#e74c3c';
+      ctx.fillStyle = col;
+      ctx.font      = j===3||j===6 ? 'bold 12px Nunito,sans-serif' : '12px Nunito,sans-serif';
+      ctx.fillText(c, tX + cW*j + cW/2, ry+18);
+    });
+  });
+
+  // Dato BPM al pie
+  const bottomY = tY + rH*(TOTAL_ROUNDS+1) + 14;
+  ctx.fillStyle = 'rgba(26,188,156,0.1)';
+  roundRect(tX, bottomY, tW, 26, 6); ctx.fill();
+  ctx.fillStyle = '#1abc9c';
+  ctx.font      = '11px Nunito,sans-serif';
+  ctx.fillText('✔ pH 6.5–9.0  ·  Cloro residual 0.3–2.0 mg/L  ·  Res. 2115/2010 Minsalud  ·  NSF 60 / OMS Guidelines for Drinking-water Quality', tX+10, bottomY+17);
+
+  // Botones
+  const bH1 = hov(180, H-60, 180, 40);
+  const bH2 = hov(440, H-60, 180, 40);
+  roundRect(180, H-60, 180, 40, 10);
+  ctx.fillStyle = bH1?'#1abc9c':'#0e8c70'; ctx.fill();
+  ctx.strokeStyle='#58d68d';ctx.lineWidth=1.5;ctx.stroke();
+  ctx.fillStyle='#fff';ctx.font='bold 16px Bebas Neue,sans-serif';
+  ctx.fillText('▶ JUGAR DE NUEVO', 270, H-33);
+
+  roundRect(440, H-60, 180, 40, 10);
+  ctx.fillStyle = bH2?'#2980b9':'#1a6fb5'; ctx.fill();
+  ctx.strokeStyle='#5dade2';ctx.lineWidth=1.5;ctx.stroke();
+  ctx.fillStyle='#fff';
+  ctx.fillText('☰ MENÚ', 530, H-33);
+
+  ctx.textAlign = 'left';
+}
+
+function drawMenuScreen() {
+  ctx.fillStyle = 'rgba(3,10,20,0.92)';
+  ctx.fillRect(0,0,W,H);
+  ctx.fillStyle = '#aed6f1';
+  ctx.font      = 'bold 48px Bebas Neue,sans-serif';
+  ctx.textAlign = 'center';
+  shadow('rgba(26,188,156,0.9)',16);
+  ctx.fillText('💧  pH y CLORO RESIDUAL', W/2, H/2-16);
+  clearShadow();
+  ctx.fillStyle = '#7fb3d3';
+  ctx.font      = '18px Nunito,sans-serif';
+  ctx.fillText('Pulsa ESPACIO o haz clic para iniciar', W/2, H/2+22);
+  ctx.textAlign = 'left';
+}
+
+// ================================================================
+//  CLICK EN RESULTADO
+// ================================================================
+function handleResultClick(mx, my) {
+  if(inRect(mx,my,180,H-60,180,40)) startGame();
+  if(inRect(mx,my,440,H-60,180,40)) goBack();
+}
+
+function goBack() {
+  if(window.parent && window.parent.exitGame) window.parent.exitGame();
+  else if(window.onGameEnd) window.onGameEnd();
+  else STATE = 'menu';
+}
+
+// ================================================================
+//  HELPERS
+// ================================================================
+function roundRect(x,y,w,h,r){
+  if(typeof r==='object'){
+    const {tl=0,tr=0,bl=0,br=0}=r;
+    ctx.beginPath();
+    ctx.moveTo(x+tl,y);ctx.lineTo(x+w-tr,y);ctx.quadraticCurveTo(x+w,y,x+w,y+tr);
+    ctx.lineTo(x+w,y+h-br);ctx.quadraticCurveTo(x+w,y+h,x+w-br,y+h);
+    ctx.lineTo(x+bl,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h-bl);
+    ctx.lineTo(x,y+tl);ctx.quadraticCurveTo(x,y,x+tl,y);ctx.closePath();
+  }else{
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+    ctx.lineTo(x+w,y+h-r);ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+    ctx.lineTo(x+r,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+    ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);ctx.closePath();
+  }
+}
+function shadow(col,blur){ctx.shadowColor=col;ctx.shadowBlur=blur;}
+function clearShadow(){ctx.shadowColor='transparent';ctx.shadowBlur=0;}
+function inRect(mx,my,x,y,w,h){return mx>=x&&mx<=x+w&&my>=y&&my<=y+h;}
+let mousePos={x:0,y:0};
+function hov(x,y,w,h){return inRect(mousePos.x,mousePos.y,x,y,w,h);}
+canvas.addEventListener('mousemove',e=>{mousePos=toCC(e.clientX,e.clientY);});
+
+function fitCanvas(){
+  const scale=Math.min(window.innerWidth/W,window.innerHeight/H);
+  canvas.style.width =Math.floor(W*scale)+'px';
+  canvas.style.height=Math.floor(H*scale)+'px';
+}
+fitCanvas();
+window.addEventListener('resize',fitCanvas);
+screen.orientation&&screen.orientation.addEventListener('change',fitCanvas);
+
+// ================================================================
+//  ARRANCAR
+// ================================================================
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
